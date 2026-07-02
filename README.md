@@ -1,22 +1,28 @@
-# Guzzle Logging Masking Middleware
+# PSR Logging Mask*** Middleware
 
-A [Guzzle](https://docs.guzzlephp.org/) middleware that logs every request and
-response passing through an HTTP client for later debugging, with secrets
-redacted. Headers, query-string arguments and body keys are masked according to
-a per-message configuration.
+A logging middleware for any [PSR-7](https://www.php-fig.org/psr/psr-7/) HTTP
+client that logs every request and response passing through it for later
+debugging, with secrets redacted. Headers, query-string arguments and body keys
+are masked according to a per-message configuration.
 
-It is built on [PSR-7](https://www.php-fig.org/psr/psr-7/) (messages) and
+It is built on [PSR-7](https://www.php-fig.org/psr/psr-7/) (messages),
+[PSR-17](https://www.php-fig.org/psr/psr-17/) (message factories) and
 [PSR-3](https://www.php-fig.org/psr/psr-3/) (logging), so it stays
-framework-agnostic and works with any PSR-3 logger.
+implementation-agnostic: it works with any PSR-3 logger and any PSR-7
+implementation - [Guzzle](https://docs.guzzlephp.org/) is one supported client,
+but not a dependency.
 
 ## Requirements
 
 - PHP 8.1 - 8.5
+- Any PSR-7 / PSR-17 implementation installed in your app (e.g.
+  `guzzlehttp/psr7` or `nyholm/psr7`) - discovered automatically via
+  [php-http/discovery](https://docs.php-http.org/en/latest/discovery.html).
 
 ## Installation
 
 ```bash
-composer require lezhnev74/guzzle-logging-masking-middleware
+composer require lezhnev74/psr-logging-masking-middleware
 ```
 
 ## Usage

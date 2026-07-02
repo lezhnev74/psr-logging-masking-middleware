@@ -1,11 +1,12 @@
 {
-    "name": "lezhnev74/guzzle-logging-masking-middleware",
-    "description": "A Guzzle middleware that logs every request/response through a PSR-3 logger, with headers, query args and body keys masked. Built on PSR-7 and PSR-3.",
+    "name": "lezhnev74/psr-logging-masking-middleware",
+    "description": "A logging middleware for any PSR-7 HTTP client (Guzzle, and other PSR-15-style stacks) that logs every request/response through a PSR-3 logger, with headers, query args and body keys masked. Built on PSR-7, PSR-17 and PSR-3.",
     "type": "library",
     "license": "MIT",
     "keywords": [
-        "guzzle",
+        "psr",
         "psr-7",
+        "psr-17",
         "psr-3",
         "logging",
         "middleware",
@@ -21,28 +22,36 @@
     "require": {
         "php": "^8.1",
         "psr/http-message": "^1.1 || ^2.0",
+        "psr/http-factory": "^1.0",
         "psr/log": "^2.0 || ^3.0",
-        "guzzlehttp/guzzle": "^7.0 || ^8.0",
-        "guzzlehttp/psr7": "^2.0"
+        "php-http/discovery": "^1.19"
     },
     "require-dev": {
+        "guzzlehttp/guzzle": "^7.0 || ^8.0",
+        "guzzlehttp/psr7": "^2.0",
+        "nyholm/psr7": "^1.8",
         "phpunit/phpunit": "^10.5",
         "phpstan/phpstan": "^1.12",
         "friendsofphp/php-cs-fixer": "^3.64",
         "rector/rector": "^1.2"
     },
+    "suggest": {
+        "psr/http-factory-implementation": "A PSR-17 factory (e.g. guzzlehttp/psr7 or nyholm/psr7) so the middleware can rebuild masked message bodies. Any HTTP app already ships one."
+    },
     "autoload": {
         "psr-4": {
-            "Lezhnev74\\GuzzleLoggingMiddleware\\": "src/"
+            "Lezhnev74\\PsrLoggingMaskingMiddleware\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Lezhnev74\\GuzzleLoggingMiddleware\\Tests\\": "tests/"
+            "Lezhnev74\\PsrLoggingMaskingMiddleware\\Tests\\": "tests/"
         }
     },
     "scripts": {
         "test": "phpunit",
+        "test-coverage": "phpunit --coverage-clover coverage.xml --coverage-text",
+        "coverage-check": "php bin/coverage-check.php coverage.xml 85 5",
         "stan": "phpstan analyse",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "cs-fix": "php-cs-fixer fix",
@@ -54,7 +63,10 @@
         ]
     },
     "config": {
-        "sort-packages": true
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

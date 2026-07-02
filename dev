@@ -45,6 +45,16 @@ if [[ $# -gt 0 ]]; then
                 ./vendor/bin/phpunit --testdox "$@"
             ;;
 
+        # Coverage collection needs Xdebug in coverage mode. The image default
+        # (xdebug.mode=develop) does not collect coverage, so PHPUnit would warn
+        # and emit no report. XDEBUG_MODE overrides it for this run only, leaving
+        # step-debugging (debug-test) untouched. coverage-check only reads the
+        # existing report, so it stays a plain run below.
+        test-coverage)
+            shift
+            run -e XDEBUG_MODE=coverage app composer test-coverage "$@"
+            ;;
+
         # Raw `docker compose` passthrough for anything docker-specific.
         compose)
             shift

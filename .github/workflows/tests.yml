@@ -28,6 +28,28 @@ jobs:
       - name: Run tests
         run: composer test
 
+  coverage:
+    name: Coverage & CRAP gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: pcov
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@v3
+
+      - name: Run tests with coverage
+        run: composer test-coverage
+
+      - name: Enforce coverage floor (85%) and CRAP ceiling (5)
+        run: composer coverage-check
+
   quality:
     name: Lint & static analysis
     runs-on: ubuntu-latest
