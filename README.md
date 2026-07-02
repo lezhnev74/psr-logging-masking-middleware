@@ -84,6 +84,26 @@ $client = new Client(['handler' => $stack]);
 Every request and response now flows through your PSR-3 logger with secrets
 masked.
 
+### Laravel (`Http` facade)
+
+Laravel's HTTP client wraps Guzzle, so pass the same middleware-carrying
+handler stack through `withOptions`:
+
+```php
+use GuzzleHttp\HandlerStack;
+use Illuminate\Support\Facades\Http;
+use Lezhnev74\PsrLoggingMaskingMiddleware\HandlerMiddleware;
+
+$stack = HandlerStack::create();
+$stack->push(HandlerMiddleware::for($logger));
+
+$response = Http::withOptions(['handler' => $stack])
+    ->get('https://example.com/');
+```
+
+Apply it to every outgoing request app-wide by setting it as the default in a
+service provider's `boot()` with `Http::globalOptions(['handler' => $stack])`.
+
 ### Any PSR-18 client (decorator)
 
 For a client with no handler stack, wrap it with the `LoggingClient` PSR-18
