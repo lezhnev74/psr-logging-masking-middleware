@@ -308,6 +308,112 @@ final class MessageLoggerTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
+    public function testDefaultContextCarriesMethodUrlAndStatus(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new MessageLogger($logger, null, null, new MessageMasker($factory));
+
+        $request = $factory->createRequest('POST', 'https://api.example.com/login?page=2');
+
+        $middleware->log($request, $factory->createResponse(201));
+
+        [$record] = $logger->records;
+        $context = self::contextOf($record);
+        self::assertSame('POST', $context['method']);
+        self::assertSame('https://api.example.com/login?page=2', $context['url']);
+        self::assertSame(201, $context['status']);
+        self::assertArrayNotHasKey('error', $context);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testDefaultFailureContextCarriesMethodUrlAndError(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new MessageLogger($logger, null, null, new MessageMasker($factory));
+
+        $request = $factory->createRequest('GET', 'https://api.example.com/ping');
+
+        $middleware->logFailure($request, new \RuntimeException('connect timeout'));
+
+        [$record] = $logger->records;
+        $context = self::contextOf($record);
+        self::assertSame('GET', $context['method']);
+        self::assertSame('https://api.example.com/ping', $context['url']);
+        $error = $context['error'];
+        self::assertIsString($error);
+        self::assertStringContainsString('connect timeout', $error);
+        self::assertStringContainsString('RuntimeException', $error);
+        self::assertArrayNotHasKey('status', $context);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testContextUrlIsMaskedNotVerbatim(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new MessageLogger(
+            $logger,
+            MaskingConfig::create(queryNames: ['api_key']),
+            null,
+            new MessageMasker($factory),
+        );
+
+        $request = $factory->createRequest('GET', 'https://api.example.com/data?api_key=secret&page=2');
+
+        $middleware->log($request, $factory->createResponse(200));
+        $middleware->logFailure($request, new \RuntimeException('boom'));
+
+        foreach ($logger->records as $record) {
+            $url = self::contextOf($record)['url'];
+            self::assertIsString($url);
+            self::assertStringNotContainsString('secret', $url);
+            self::assertStringContainsString('page=2', $url);
+        }
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassCanOverrideContextKeepingDefaultMessage(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function context(RequestInterface $request, ?ResponseInterface $response, ?\Throwable $error): array
+            {
+                return ['request_id' => 'rid-42'] + parent::context($request, $response, $error);
+            }
+        };
+
+        $request = $factory->createRequest('GET', 'https://example.com/');
+
+        $middleware->log($request, $factory->createResponse(200));
+
+        [$record] = $logger->records;
+        $context = self::contextOf($record);
+        self::assertSame('rid-42', $context['request_id']);
+        self::assertSame(200, $context['status']);
+        // Default message format is untouched.
+        $message = $record['message'];
+        self::assertIsString($message);
+        self::assertStringContainsString('HTTP request:', $message);
+    }
+
+    /**
+     * Narrows a TestLogger record's context to a keyed array for static analysis.
+     *
+     * @param  array<string, mixed>  $record
+     * @return array<string, mixed>
+     */
+    private static function contextOf(array $record): array
+    {
+        $context = $record['context'];
+        self::assertIsArray($context);
+
+        return $context;
+    }
+
+    #[DataProvider('psr7Factories')]
     public function testDoesNotConsumeOrMutateTheOriginalMessage(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {

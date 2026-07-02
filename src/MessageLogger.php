@@ -28,8 +28,8 @@ use Psr\Log\LogLevel;
  * PSR-3 log level, and (on the injected MessageMasker) the redaction placeholder.
  * Per-exchange decisions are protected seams a subclass overrides: shouldLog()
  * to skip an exchange, resolveRequestConfig()/resolveResponseConfig() to vary
- * the masking per message, and formatSuccess()/formatFailure() to change the
- * rendered log line.
+ * the masking per message, formatSuccess()/formatFailure() to change the
+ * rendered log line, and context() to shape the structured PSR-3 context array.
  */
 class MessageLogger
 {
@@ -53,10 +53,15 @@ class MessageLogger
             return;
         }
 
-        $requestDump = $this->dump($request, $this->resolveRequestConfig($request));
+        $maskedRequest = $this->masked($request, $this->resolveRequestConfig($request));
+        $requestDump = $this->serializer->serialize($maskedRequest);
         $responseDump = $this->dump($response, $this->resolveResponseConfig($request, $response));
 
-        $this->logger->log($this->logLevel(), $this->formatSuccess($requestDump, $responseDump));
+        $this->logger->log(
+            $this->logLevel(),
+            $this->formatSuccess($requestDump, $responseDump),
+            $this->context($maskedRequest, $response, null),
+        );
     }
 
     /**
@@ -71,9 +76,14 @@ class MessageLogger
             return;
         }
 
-        $requestDump = $this->dump($request, $this->resolveRequestConfig($request));
+        $maskedRequest = $this->masked($request, $this->resolveRequestConfig($request));
+        $requestDump = $this->serializer->serialize($maskedRequest);
 
-        $this->logger->log($this->logLevel(), $this->formatFailure($requestDump, $error));
+        $this->logger->log(
+            $this->logLevel(),
+            $this->formatFailure($requestDump, $error),
+            $this->context($maskedRequest, null, $error),
+        );
     }
 
     /**
@@ -133,13 +143,52 @@ class MessageLogger
     }
 
     /**
+     * Machine-readable record context (the PSR-3 2nd argument): method and url
+     * from the masked request, plus the response status on success or the error
+     * class and message on failure. Override to add or replace fields.
+     *
+     * The request is already masked, so url carries no redacted query secret.
+     *
+     * @return array<string, mixed>
+     */
+    protected function context(RequestInterface $maskedRequest, ?ResponseInterface $response, ?\Throwable $error): array
+    {
+        $context = [
+            'method' => $maskedRequest->getMethod(),
+            'url' => (string)$maskedRequest->getUri(),
+        ];
+
+        if ($response instanceof ResponseInterface) {
+            $context['status'] = $response->getStatusCode();
+        }
+
+        if ($error instanceof \Throwable) {
+            $context['error'] = sprintf('%s: %s', $error::class, $error->getMessage());
+        }
+
+        return $context;
+    }
+
+    /**
      * Serializes a message for the log, masking it per config first; a null
      * config bypasses masking and dumps the message unmasked.
      */
     protected function dump(RequestInterface|ResponseInterface $message, ?MaskingConfig $config): string
     {
-        $message = $config instanceof MaskingConfig ? $this->masker->mask($message, $config) : $message;
+        return $this->serializer->serialize($this->masked($message, $config));
+    }
 
-        return $this->serializer->serialize($message);
+    /**
+     * Returns the masked clone used for both the serialized dump and the context;
+     * a null config bypasses masking and returns the message unchanged.
+     *
+     * @template T of RequestInterface|ResponseInterface
+     *
+     * @param  T  $message
+     * @return T
+     */
+    private function masked(RequestInterface|ResponseInterface $message, ?MaskingConfig $config): RequestInterface|ResponseInterface
+    {
+        return $config instanceof MaskingConfig ? $this->masker->mask($message, $config) : $message;
     }
 }
