@@ -32,9 +32,10 @@ class MessageMasker
     public function __construct(
         ?StreamFactoryInterface $streamFactory = null,
         private readonly string $placeholder = '***',
+        ?KeyPathMatcher $pathMatcher = null,
     ) {
         $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
-        $this->pathMatcher = new KeyPathMatcher();
+        $this->pathMatcher = $pathMatcher ?? new KeyPathMatcher();
     }
 
     /**

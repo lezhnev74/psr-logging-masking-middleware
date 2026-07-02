@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
+use Lezhnev74\PsrLoggingMaskingMiddleware\KeyPathMatcher;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -155,6 +156,39 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withBody($factory->createStream('{"password":"p"}'));
 
         self::assertSame('<json diverted>', (string) $masker->mask($json, MaskingConfig::create())->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testInjectedKeyPathMatcherWinsOverDefault(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // A custom matcher subclass redacts an extra key ("secret") that the
+        // configured bodyKeys never list - proving the injected matcher, not the
+        // default `new KeyPathMatcher()`, drives body-key matching.
+        $matcher = new class () extends KeyPathMatcher {
+            protected function matchesKey(string $key, array $path): bool
+            {
+                if ($path !== [] && strcasecmp('secret', $path[count($path) - 1]) === 0) {
+                    return true;
+                }
+
+                return parent::matchesKey($key, $path);
+            }
+        };
+
+        $request = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"secret":"s","password":"p","keep":"v"}'));
+
+        $masked = (new MessageMasker($factory, pathMatcher: $matcher))->mask(
+            $request,
+            MaskingConfig::create(bodyKeys: ['password']),
+        );
+
+        self::assertSame(
+            '{"secret":"***","password":"***","keep":"v"}',
+            (string) $masked->getBody(),
+        );
     }
 
     #[DataProvider('psr7Factories')]
