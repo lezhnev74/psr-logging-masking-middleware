@@ -9,7 +9,6 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\LoggingClient;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
-use Lezhnev74\PsrLoggingMaskingMiddleware\Redaction;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -65,8 +64,8 @@ final class LoggingClientTest extends PsrImplTestCase
         self::assertCount(1, $logger->records);
         $message = $logger->records[0]['message'];
         self::assertIsString($message);
-        self::assertStringContainsString('Authorization: ' . Redaction::PLACEHOLDER, $message);
-        self::assertStringContainsString('Set-Cookie: ' . Redaction::PLACEHOLDER, $message);
+        self::assertStringContainsString('Authorization: ***', $message);
+        self::assertStringContainsString('Set-Cookie: ***', $message);
         self::assertStringNotContainsString('super-secret', $message);
         self::assertStringNotContainsString('deadbeef', $message);
     }
@@ -109,7 +108,7 @@ final class LoggingClientTest extends PsrImplTestCase
         self::assertCount(1, $logger->records);
         $message = $logger->records[0]['message'];
         self::assertIsString($message);
-        self::assertStringContainsString('Authorization: ' . Redaction::PLACEHOLDER, $message);
+        self::assertStringContainsString('Authorization: ***', $message);
         self::assertStringNotContainsString('super-secret', $message);
         self::assertStringContainsString($error->getMessage(), $message);
     }

@@ -9,10 +9,11 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageSerializer;
-use Lezhnev74\PsrLoggingMaskingMiddleware\Redaction;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriFactoryInterface;
 use Psr\Log\LogLevel;
@@ -56,12 +57,12 @@ final class MessageLoggerTest extends PsrImplTestCase
         self::assertStringContainsString('HTTP request:', $message);
         self::assertStringContainsString('HTTP response:', $message);
         // Request secrets redacted: header, query arg, JSON body key.
-        self::assertStringContainsString('Authorization: ' . Redaction::PLACEHOLDER, $message);
-        self::assertStringContainsString('token=' . rawurlencode(Redaction::PLACEHOLDER), $message);
-        self::assertStringContainsString('"password":"' . Redaction::PLACEHOLDER . '"', $message);
+        self::assertStringContainsString('Authorization: ***', $message);
+        self::assertStringContainsString('token=' . rawurlencode('***'), $message);
+        self::assertStringContainsString('"password":"***"', $message);
         self::assertStringContainsString('"user":"ann"', $message);
         // Response secret redacted.
-        self::assertStringContainsString('Set-Cookie: ' . Redaction::PLACEHOLDER, $message);
+        self::assertStringContainsString('Set-Cookie: ***', $message);
         // Nothing leaked verbatim.
         self::assertStringNotContainsString('super-secret', $message);
         self::assertStringNotContainsString('hunter2', $message);
@@ -86,7 +87,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         self::assertIsString($message);
         self::assertStringContainsString('super-secret', $message);
         self::assertStringContainsString('deadbeef', $message);
-        self::assertStringNotContainsString(Redaction::PLACEHOLDER, $message);
+        self::assertStringNotContainsString('***', $message);
     }
 
     #[DataProvider('psr7Factories')]
@@ -112,7 +113,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $message = $record['message'];
         self::assertIsString($message);
         self::assertStringContainsString('HTTP request:', $message);
-        self::assertStringContainsString('Authorization: ' . Redaction::PLACEHOLDER, $message);
+        self::assertStringContainsString('Authorization: ***', $message);
         self::assertStringNotContainsString('super-secret', $message);
         self::assertStringContainsString('RuntimeException', $message);
         self::assertStringContainsString('connect timeout', $message);
@@ -141,6 +142,169 @@ final class MessageLoggerTest extends PsrImplTestCase
         $message = $record['message'];
         self::assertIsString($message);
         self::assertStringContainsString($expectedRequest, $message);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testConstructorLogLevelIsUsedForBothPaths(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new MessageLogger(
+            $logger,
+            null,
+            null,
+            new MessageMasker($factory),
+            logLevel: LogLevel::INFO,
+        );
+
+        $request = $factory->createRequest('GET', 'https://example.com/');
+
+        $middleware->log($request, $factory->createResponse(200));
+        $middleware->logFailure($request, new \RuntimeException('boom'));
+
+        self::assertCount(2, $logger->records);
+        self::assertSame(LogLevel::INFO, $logger->records[0]['level']);
+        self::assertSame(LogLevel::INFO, $logger->records[1]['level']);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassCanOverrideLogLevel(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function logLevel(): string
+            {
+                return LogLevel::WARNING;
+            }
+        };
+
+        $request = $factory->createRequest('GET', 'https://example.com/');
+        $response = $factory->createResponse(200);
+
+        $middleware->log($request, $response);
+        $middleware->logFailure($request, new \RuntimeException('boom'));
+
+        self::assertCount(2, $logger->records);
+        self::assertSame(LogLevel::WARNING, $logger->records[0]['level']);
+        self::assertSame(LogLevel::WARNING, $logger->records[1]['level']);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testShouldLogSkipsBothPathsWithoutEmission(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        // Skip health-checks; log everything else.
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function shouldLog(RequestInterface $request, ?ResponseInterface $response, ?\Throwable $error): bool
+            {
+                return $request->getUri()->getPath() !== '/health';
+            }
+        };
+
+        $health = $factory->createRequest('GET', 'https://example.com/health');
+        $other = $factory->createRequest('GET', 'https://example.com/api');
+
+        $middleware->log($health, $factory->createResponse(200));
+        $middleware->logFailure($health, new \RuntimeException('down'));
+        $middleware->log($other, $factory->createResponse(200));
+
+        self::assertCount(1, $logger->records);
+        $message = $logger->records[0]['message'];
+        self::assertIsString($message);
+        self::assertStringContainsString('/api', $message);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testResolvesMaskingConfigPerMessage(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        // Mask the Authorization header only for /secure; leave /open untouched.
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function resolveRequestConfig(RequestInterface $request): ?MaskingConfig
+            {
+                return $request->getUri()->getPath() === '/secure'
+                    ? MaskingConfig::create(headerNames: ['Authorization'])
+                    : null;
+            }
+        };
+
+        $secure = $factory->createRequest('GET', 'https://example.com/secure')
+            ->withHeader('Authorization', 'Bearer secret-a');
+        $open = $factory->createRequest('GET', 'https://example.com/open')
+            ->withHeader('Authorization', 'Bearer secret-b');
+
+        $middleware->log($secure, $factory->createResponse(200));
+        $middleware->log($open, $factory->createResponse(200));
+
+        [$secureRecord, $openRecord] = [$logger->records[0]['message'], $logger->records[1]['message']];
+        self::assertIsString($secureRecord);
+        self::assertIsString($openRecord);
+        self::assertStringContainsString('Authorization: ***', $secureRecord);
+        self::assertStringNotContainsString('secret-a', $secureRecord);
+        self::assertStringContainsString('secret-b', $openRecord);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testResolveResponseConfigIsKeyedOnRequest(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function resolveResponseConfig(RequestInterface $request, ResponseInterface $response): ?MaskingConfig
+            {
+                return $request->getMethod() === 'POST'
+                    ? MaskingConfig::create(headerNames: ['Set-Cookie'])
+                    : null;
+            }
+        };
+
+        $post = $factory->createRequest('POST', 'https://example.com/');
+        $get = $factory->createRequest('GET', 'https://example.com/');
+        $response = fn () => $factory->createResponse(200)->withHeader('Set-Cookie', 'session=deadbeef');
+
+        $middleware->log($post, $response());
+        $middleware->log($get, $response());
+
+        [$postRecord, $getRecord] = [$logger->records[0]['message'], $logger->records[1]['message']];
+        self::assertIsString($postRecord);
+        self::assertIsString($getRecord);
+        self::assertStringContainsString('Set-Cookie: ***', $postRecord);
+        self::assertStringNotContainsString('deadbeef', $postRecord);
+        self::assertStringContainsString('deadbeef', $getRecord);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassCanOverrideMessageFormat(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $logger = new TestLogger();
+        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+            protected function formatSuccess(string $requestDump, string $responseDump): string
+            {
+                return "REQ<{$requestDump}>RESP<{$responseDump}>";
+            }
+
+            protected function formatFailure(string $requestDump, \Throwable $error): string
+            {
+                return "REQ<{$requestDump}>ERR<{$error->getMessage()}>";
+            }
+        };
+
+        $request = $factory->createRequest('GET', 'https://example.com/');
+
+        $middleware->log($request, $factory->createResponse(200));
+        $middleware->logFailure($request, new \RuntimeException('boom'));
+
+        [$successRecord, $failureRecord] = [$logger->records[0]['message'], $logger->records[1]['message']];
+        self::assertIsString($successRecord);
+        self::assertIsString($failureRecord);
+        self::assertStringStartsWith('REQ<', $successRecord);
+        self::assertStringContainsString('>RESP<', $successRecord);
+        self::assertStringContainsString('>ERR<', $failureRecord);
+        self::assertStringContainsString('boom', $failureRecord);
     }
 
     #[DataProvider('psr7Factories')]

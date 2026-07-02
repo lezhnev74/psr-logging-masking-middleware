@@ -25,14 +25,14 @@ class MessageSerializer
             . (string) $message->getBody();
     }
 
-    private function startLine(RequestInterface|ResponseInterface $message): string
+    protected function startLine(RequestInterface|ResponseInterface $message): string
     {
         return $message instanceof RequestInterface
             ? $this->requestLine($message)
             : $this->statusLine($message);
     }
 
-    private function requestLine(RequestInterface $request): string
+    protected function requestLine(RequestInterface $request): string
     {
         return sprintf(
             '%s %s HTTP/%s',
@@ -42,7 +42,7 @@ class MessageSerializer
         );
     }
 
-    private function statusLine(ResponseInterface $response): string
+    protected function statusLine(ResponseInterface $response): string
     {
         return rtrim(sprintf(
             'HTTP/%s %d %s',
@@ -52,7 +52,7 @@ class MessageSerializer
         ));
     }
 
-    private function headers(MessageInterface $message): string
+    protected function headers(MessageInterface $message): string
     {
         $lines = '';
 

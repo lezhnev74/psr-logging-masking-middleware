@@ -29,10 +29,21 @@ class MessageMasker
 
     private readonly KeyPathMatcher $pathMatcher;
 
-    public function __construct(?StreamFactoryInterface $streamFactory = null)
-    {
+    public function __construct(
+        ?StreamFactoryInterface $streamFactory = null,
+        private readonly string $placeholder = '***',
+    ) {
         $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
         $this->pathMatcher = new KeyPathMatcher();
+    }
+
+    /**
+     * The marker substituted for every redacted header, query arg and body key.
+     * Set once via the constructor; override for a computed marker.
+     */
+    protected function placeholder(): string
+    {
+        return $this->placeholder;
     }
 
     /**
@@ -54,7 +65,7 @@ class MessageMasker
 
         foreach ($config->headerNames as $name) {
             if ($message->hasHeader($name)) {
-                $message = $message->withHeader($name, Redaction::PLACEHOLDER);
+                $message = $message->withHeader($name, $this->placeholder());
             }
         }
 
@@ -103,7 +114,7 @@ class MessageMasker
      * scalar has no keys so it is logged verbatim, and a body that fails to decode
      * falls through to the non-loggable note.
      */
-    private function maskJsonBody(string $body, string $type, MaskingConfig $config): string
+    protected function maskJsonBody(string $body, string $type, MaskingConfig $config): string
     {
         try {
             $decoded = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
@@ -120,7 +131,7 @@ class MessageMasker
      * Builds the placeholder note for an opaque body, keeping the media type
      * (safe metadata) but never the content itself.
      */
-    private function nonLoggableNote(string $type, string $body): string
+    protected function nonLoggableNote(string $type, string $body): string
     {
         return $type === ''
             ? sprintf('<non-loggable body: %d bytes>', strlen($body))
@@ -133,7 +144,7 @@ class MessageMasker
      *
      * @param  list<string>  $names
      */
-    private function maskFormEncoded(string $encoded, array $names): string
+    protected function maskFormEncoded(string $encoded, array $names): string
     {
         if ($encoded === '') {
             return '';
@@ -143,7 +154,7 @@ class MessageMasker
             // Split into name and value; a missing "=" means a valueless flag.
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, null);
             if ($value !== null && $this->matchesInsensitive(rawurldecode($name), $names)) {
-                return $name.'='.rawurlencode(Redaction::PLACEHOLDER);
+                return $name.'='.rawurlencode($this->placeholder());
             }
 
             return $pair;
@@ -160,13 +171,13 @@ class MessageMasker
      * @param  list<string>  $path  keys from the JSON root to this array
      * @return array<mixed>
      */
-    private function maskArray(array $data, MaskingConfig $config, array $path = []): array
+    protected function maskArray(array $data, MaskingConfig $config, array $path = []): array
     {
         $result = [];
         foreach ($data as $key => $value) {
             $childPath = [...$path, (string)$key];
             if ($this->pathMatcher->matches($config->bodyKeys, $childPath)) {
-                $result[$key] = Redaction::PLACEHOLDER;
+                $result[$key] = $this->placeholder();
 
                 continue;
             }
@@ -179,7 +190,7 @@ class MessageMasker
     /**
      * @param  list<string>  $names
      */
-    private function matchesInsensitive(string $name, array $names): bool
+    protected function matchesInsensitive(string $name, array $names): bool
     {
         foreach ($names as $candidate) {
             if (strcasecmp($name, $candidate) === 0) {

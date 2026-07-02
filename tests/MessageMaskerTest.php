@@ -6,7 +6,6 @@ namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
-use Lezhnev74\PsrLoggingMaskingMiddleware\Redaction;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -34,8 +33,63 @@ final class MessageMaskerTest extends PsrImplTestCase
             MaskingConfig::create(headerNames: ['authorization']),
         );
 
-        self::assertSame(Redaction::PLACEHOLDER, $masked->getHeaderLine('Authorization'));
+        self::assertSame('***', $masked->getHeaderLine('Authorization'));
         self::assertSame('application/json', $masked->getHeaderLine('Accept'));
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testConstructorPlaceholderReplacesDefaultAcrossHeaderQueryAndBody(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $marker = '[REDACTED]';
+        $request = $factory->createRequest('POST', 'https://example.com/?token=abc')
+            ->withHeader('Authorization', 'Bearer secret')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"hunter2"}'));
+
+        $masked = (new MessageMasker($factory, $marker))->mask(
+            $request,
+            MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
+        );
+
+        self::assertSame($marker, $masked->getHeaderLine('Authorization'));
+        self::assertSame('token=' . rawurlencode($marker), $masked->getUri()->getQuery());
+        self::assertSame('{"password":"' . $marker . '"}', (string) $masked->getBody());
+        self::assertStringNotContainsString('***', (string) $masked->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassExtendsBodyMaskingViaProtectedSeams(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // A subclass adds XML handling by overriding the now-protected maskBody
+        // and still delegates every other type to parent::nonLoggableNote().
+        $masker = new class ($factory) extends MessageMasker {
+            public function maskBody(string $body, string $contentType, MaskingConfig $config): string
+            {
+                if (str_starts_with($contentType, 'application/xml')) {
+                    return '<xml redacted>';
+                }
+
+                return parent::maskBody($body, $contentType, $config);
+            }
+        };
+
+        $xml = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/xml')
+            ->withBody($factory->createStream('<user><pass>hunter2</pass></user>'));
+        $binary = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/octet-stream')
+            ->withBody($factory->createStream('rawbytes'));
+
+        $config = MaskingConfig::create();
+        self::assertSame('<xml redacted>', (string) $masker->mask($xml, $config)->getBody());
+        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml, $config)->getBody());
+        // Unknown type still falls through to the inherited size note.
+        self::assertSame(
+            '<non-loggable application/octet-stream body: 8 bytes>',
+            (string) $masker->mask($binary, $config)->getBody(),
+        );
     }
 
     #[DataProvider('psr7Factories')]
@@ -49,7 +103,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             MaskingConfig::create(queryNames: ['TOKEN']),
         );
 
-        self::assertSame('token=' . rawurlencode(Redaction::PLACEHOLDER) . '&page=2', $masked->getUri()->getQuery());
+        self::assertSame('token=' . rawurlencode('***') . '&page=2', $masked->getUri()->getQuery());
     }
 
     /**
@@ -89,13 +143,13 @@ final class MessageMaskerTest extends PsrImplTestCase
             'object masked by key' => [
                 '{"password":"p","keep":"v"}',
                 ['password'],
-                '{"password":"' . Redaction::PLACEHOLDER . '","keep":"v"}',
+                '{"password":"***","keep":"v"}',
             ],
             'nested + list elements masked recursively' => [
                 '{"password":"p","nested":{"Password":"q"},"users":[{"password":"r"}],"keep":"v"}',
                 ['password'],
-                '{"password":"' . Redaction::PLACEHOLDER . '","nested":{"Password":"' . Redaction::PLACEHOLDER
-                    . '"},"users":[{"password":"' . Redaction::PLACEHOLDER . '"}],"keep":"v"}',
+                '{"password":"***","nested":{"Password":"***'
+                    . '"},"users":[{"password":"***"}],"keep":"v"}',
             ],
             'valid scalar has no keys, logged verbatim' => [
                 '"password"',
@@ -115,19 +169,19 @@ final class MessageMaskerTest extends PsrImplTestCase
             'dot-path with * masks each list element, leaves top-level key' => [
                 '{"password":"top","users":[{"password":"a"},{"password":"b"}]}',
                 ['users.*.password'],
-                '{"password":"top","users":[{"password":"' . Redaction::PLACEHOLDER
-                    . '"},{"password":"' . Redaction::PLACEHOLDER . '"}]}',
+                '{"password":"top","users":[{"password":"***'
+                    . '"},{"password":"***"}]}',
             ],
             'deep ** path masks token at every depth' => [
                 '{"token":"a","nested":{"deep":{"token":"b"}},"keep":"v"}',
                 ['**.token'],
-                '{"token":"' . Redaction::PLACEHOLDER . '","nested":{"deep":{"token":"'
-                    . Redaction::PLACEHOLDER . '"}},"keep":"v"}',
+                '{"token":"***","nested":{"deep":{"token":"'
+                    . '***"}},"keep":"v"}',
             ],
             'exact path masks only that location' => [
                 '{"a":{"b":{"c":"x"}},"c":"keep"}',
                 ['a.b.c'],
-                '{"a":{"b":{"c":"' . Redaction::PLACEHOLDER . '"}},"c":"keep"}',
+                '{"a":{"b":{"c":"***"}},"c":"keep"}',
             ],
         ];
     }
@@ -163,7 +217,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             MaskingConfig::create(bodyKeys: ['token']),
         );
 
-        self::assertSame(['token' => Redaction::PLACEHOLDER], json_decode((string) $masked->getBody(), true));
+        self::assertSame(['token' => '***'], json_decode((string) $masked->getBody(), true));
     }
 
     #[DataProvider('psr7Factories')]
@@ -180,7 +234,7 @@ final class MessageMaskerTest extends PsrImplTestCase
         );
 
         self::assertSame(
-            'Secret=' . rawurlencode(Redaction::PLACEHOLDER) . '&keep=1&flag',
+            'Secret=' . rawurlencode('***') . '&keep=1&flag',
             (string) $masked->getBody(),
         );
     }

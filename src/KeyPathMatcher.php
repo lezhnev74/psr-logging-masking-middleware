@@ -40,7 +40,7 @@ class KeyPathMatcher
     /**
      * @param  list<string>  $path
      */
-    private function matchesKey(string $key, array $path): bool
+    protected function matchesKey(string $key, array $path): bool
     {
         if ($path === []) {
             return false;
@@ -61,7 +61,7 @@ class KeyPathMatcher
      * @param  list<string>  $segments
      * @param  list<string>  $path
      */
-    private function matchesSegments(array $segments, array $path, int $s, int $p): bool
+    protected function matchesSegments(array $segments, array $path, int $s, int $p): bool
     {
         if ($s === count($segments)) {
             return $p === count($path);
@@ -82,7 +82,7 @@ class KeyPathMatcher
      * @param  list<string>  $segments
      * @param  list<string>  $path
      */
-    private function matchesDeep(array $segments, array $path, int $s, int $p): bool
+    protected function matchesDeep(array $segments, array $path, int $s, int $p): bool
     {
         return $this->matchesSegments($segments, $path, $s + 1, $p)
             || ($p < count($path) && $this->matchesSegments($segments, $path, $s, $p + 1));
@@ -92,7 +92,7 @@ class KeyPathMatcher
      * A single (non-"**") segment matches one path element: "*" matches any,
      * otherwise a case-insensitive literal comparison.
      */
-    private function segmentEquals(string $segment, string $element): bool
+    protected function segmentEquals(string $segment, string $element): bool
     {
         return $segment === '*' || strcasecmp($segment, $element) === 0;
     }
