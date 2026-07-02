@@ -180,7 +180,7 @@ class MessageMasker
         $pairs = array_map(function (string $pair) use ($names): string {
             // Split into name and value; a missing "=" means a valueless flag.
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, null);
-            if ($value !== null && $this->matchesInsensitive(rawurldecode($name), $names)) {
+            if ($name !== null && $value !== null && $this->matchesInsensitive(rawurldecode($name), $names)) {
                 return $name.'='.rawurlencode($this->placeholder());
             }
 

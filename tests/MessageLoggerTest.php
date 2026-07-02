@@ -319,7 +319,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware->log($request, $factory->createResponse(201));
 
         [$record] = $logger->records;
-        $context = self::contextOf($record);
+        $context = $this->contextOf($record);
         self::assertSame('POST', $context['method']);
         self::assertSame('https://api.example.com/login?page=2', $context['url']);
         self::assertSame(201, $context['status']);
@@ -338,7 +338,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware->logFailure($request, new \RuntimeException('connect timeout'));
 
         [$record] = $logger->records;
-        $context = self::contextOf($record);
+        $context = $this->contextOf($record);
         self::assertSame('GET', $context['method']);
         self::assertSame('https://api.example.com/ping', $context['url']);
         $error = $context['error'];
@@ -366,7 +366,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware->logFailure($request, new \RuntimeException('boom'));
 
         foreach ($logger->records as $record) {
-            $url = self::contextOf($record)['url'];
+            $url = $this->contextOf($record)['url'];
             self::assertIsString($url);
             self::assertStringNotContainsString('secret', $url);
             self::assertStringContainsString('page=2', $url);
@@ -390,7 +390,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware->log($request, $factory->createResponse(200));
 
         [$record] = $logger->records;
-        $context = self::contextOf($record);
+        $context = $this->contextOf($record);
         self::assertSame('rid-42', $context['request_id']);
         self::assertSame(200, $context['status']);
         // Default message format is untouched.
@@ -405,11 +405,12 @@ final class MessageLoggerTest extends PsrImplTestCase
      * @param  array<string, mixed>  $record
      * @return array<string, mixed>
      */
-    private static function contextOf(array $record): array
+    private function contextOf(array $record): array
     {
         $context = $record['context'];
         self::assertIsArray($context);
 
+        /** @var array<string, mixed> $context */
         return $context;
     }
 

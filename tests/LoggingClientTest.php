@@ -75,8 +75,6 @@ final class LoggingClientTest extends PsrImplTestCase
      * (a bug, a TypeError, a transport exception that skips the interface). The
      * decorator catches any Throwable so the sent request is always logged before
      * the throwable propagates unchanged.
-     *
-     * @param  \Throwable  $error
      */
     #[DataProvider('throwablesAcrossImpls')]
     public function testLogsFailureAndRethrowsWhenInnerClientThrowsAnyThrowable(

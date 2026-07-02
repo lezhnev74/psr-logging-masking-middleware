@@ -107,7 +107,7 @@ final class HandlerMiddlewareTest extends PsrImplTestCase
  */
 final class FulfilledThenable
 {
-    public function __construct(private mixed $value)
+    public function __construct(private readonly mixed $value)
     {
     }
 
@@ -132,7 +132,7 @@ final class FulfilledThenable
  */
 final class RejectedThenable
 {
-    public function __construct(private \Throwable $reason)
+    public function __construct(private readonly \Throwable $reason)
     {
     }
 

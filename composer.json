@@ -34,9 +34,9 @@
         "guzzlehttp/psr7": "^2.0",
         "illuminate/http": "^10.0 || ^11.0 || ^12.0",
         "nyholm/psr7": "^1.8",
-        "phpstan/phpstan": "^1.12",
+        "phpstan/phpstan": "^2.2",
         "phpunit/phpunit": "^10.5",
-        "rector/rector": "^1.2",
+        "rector/rector": "^2.5",
         "roave/security-advisories": "dev-latest"
     },
     "suggest": {
@@ -56,7 +56,7 @@
         "test": "phpunit",
         "test-coverage": "phpunit --coverage-clover coverage.xml --coverage-text",
         "coverage-check": "php bin/coverage-check.php coverage.xml 85 5",
-        "stan": "phpstan analyse",
+        "stan": "phpstan analyse --memory-limit=512M",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "cs-fix": "php-cs-fixer fix",
         "rector": "rector process --dry-run",

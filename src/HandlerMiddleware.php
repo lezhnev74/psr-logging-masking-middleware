@@ -43,6 +43,10 @@ final class HandlerMiddleware
             static function (RequestInterface $request, array $options) use ($handler, $logger): object {
                 $promise = $handler($request, $options);
 
+                // The handler returns a duck-typed promise (e.g. Guzzle's
+                // PromiseInterface). src/ must stay implementation-agnostic, so
+                // the type is left open and the ->then() seam is trusted here.
+                // @phpstan-ignore method.nonObject, return.type
                 return $promise->then(
                     static function (ResponseInterface $response) use ($request, $logger): ResponseInterface {
                         $logger->log($request, $response);
