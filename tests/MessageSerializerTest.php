@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
+use ColinODell\PsrTestLogger\TestLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageSerializer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriFactoryInterface;
@@ -108,5 +112,68 @@ final class MessageSerializerTest extends PsrImplTestCase
 
         // The caller must still be able to read the full body afterwards.
         self::assertSame('payload', (string) $request->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassOverridingRequestLineSeamChangesOutput(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $serializer = new class () extends MessageSerializer {
+            protected function requestLine(RequestInterface $request): string
+            {
+                return strtoupper($request->getMethod()) . ' ' . $request->getRequestTarget();
+            }
+        };
+
+        $request = $factory->createRequest('get', 'https://example.com/things?page=2')
+            ->withHeader('Host', 'example.com');
+
+        $serialized = $serializer->serialize($request);
+
+        // The overridden seam drops the protocol version from the start line.
+        self::assertStringStartsWith("GET /things?page=2\r\n", $serialized);
+        self::assertStringNotContainsString('HTTP/', $serialized);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testMessageLoggerAcceptsAnOverriddenSerializerSubclass(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        $serializer = new class () extends MessageSerializer {
+            protected function headers(\Psr\Http\Message\MessageInterface $message): string
+            {
+                // A truncating seam: render only the header names, no values.
+                $names = '';
+
+                foreach (array_keys($message->getHeaders()) as $name) {
+                    $names .= $name . "\r\n";
+                }
+
+                return $names;
+            }
+        };
+
+        $logger = new TestLogger();
+        $middleware = new MessageLogger(
+            $logger,
+            null,
+            null,
+            new MessageMasker($factory),
+            $serializer,
+        );
+
+        $request = $factory->createRequest('GET', 'https://example.com/')
+            ->withHeader('Host', 'example.com')
+            ->withHeader('X-Secret', 'value');
+        $response = $factory->createResponse(200);
+
+        $middleware->log($request, $response);
+
+        [$record] = $logger->records;
+        $message = $record['message'];
+        self::assertIsString($message);
+        // The subclass' header rendering reached the record: names present, values gone.
+        self::assertStringContainsString("X-Secret\r\n", $message);
+        self::assertStringNotContainsString('X-Secret: value', $message);
     }
 }
