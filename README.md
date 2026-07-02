@@ -1,5 +1,7 @@
 # PSR-compatible Logging Masking Middleware
 
+[![tests](https://github.com/lezhnev74/psr-logging-masking-middleware/actions/workflows/tests.yml/badge.svg)](https://github.com/lezhnev74/psr-logging-masking-middleware/actions/workflows/tests.yml)
+
 A logging middleware for any [PSR-7](https://www.php-fig.org/psr/psr-7/) HTTP
 client that logs every request and response passing through it for later
 debugging, with **secrets redacted**. Headers, query-string arguments and body keys
