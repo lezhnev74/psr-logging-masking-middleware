@@ -26,6 +26,9 @@ composer require lezhnev74/psr-logging-masking-middleware
 
 ## Usage
 
+> Every snippet below is backed by a green test - the linked `tests/*Test.php`
+> file is the executable, always-current spec for that example.
+
 The core is a `MessageLogger`: give it a PSR-3 logger and, optionally, a
 `MaskingConfig` for the request and one for the response. It masks each message
 and writes the exchange as a single debug record. A `null` config logs that
@@ -51,6 +54,36 @@ $logger = new MessageLogger(
 `MessageLogger` discovers a PSR-17 stream factory automatically. To pin one,
 pass a `MessageMasker` built with your factory as the 4th argument.
 
+See examples at [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
+
+### Per-message masking fields
+
+The constructor `MaskingConfig` is the default; to vary the masked fields per
+request or response, subclass `MessageLogger` and override the
+`resolveRequestConfig()` / `resolveResponseConfig()` seams. They receive the
+message (and, for responses, the request too), so you can key the config on
+path, method, headers, or anything else - returning `null` logs that message
+unmasked.
+
+```php
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
+use Psr\Http\Message\RequestInterface;
+
+$logger = new class ($psr3Logger) extends MessageLogger {
+    // Mask Authorization only on /secure; log every other path unmasked.
+    protected function resolveRequestConfig(RequestInterface $request): ?MaskingConfig
+    {
+        return $request->getUri()->getPath() === '/secure'
+            ? MaskingConfig::create(headerNames: ['Authorization'])
+            : null;
+    }
+};
+```
+
+See examples at [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php)
+(`testResolvesMaskingConfigPerMessage`, `testResolveResponseConfigIsKeyedOnRequest`).
+
 ### Generic clients (handler stacks)
 
 `HandlerMiddleware::for()` turns the logger into a middleware closure - the
@@ -65,6 +98,8 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\HandlerMiddleware;
 $middleware = HandlerMiddleware::for($logger);
 // $stack->push($middleware);  // push onto any compatible handler stack
 ```
+
+See examples at [tests/HandlerMiddlewareTest.php](tests/HandlerMiddlewareTest.php).
 
 ### Guzzle
 
@@ -83,6 +118,8 @@ $client = new Client(['handler' => $stack]);
 
 Every request and response now flows through your PSR-3 logger with secrets
 masked.
+
+See examples at [tests/GuzzleClientTest.php](tests/GuzzleClientTest.php).
 
 ### Laravel (`Http` facade)
 
@@ -104,6 +141,8 @@ $response = Http::withOptions(['handler' => $stack])
 Apply it to every outgoing request app-wide by setting it as the default in a
 service provider's `boot()` with `Http::globalOptions(['handler' => $stack])`.
 
+See examples at [tests/LaravelHttpFacadeTest.php](tests/LaravelHttpFacadeTest.php).
+
 ### Any PSR-18 client (decorator)
 
 For a client with no handler stack, wrap it with the `LoggingClient` PSR-18
@@ -114,6 +153,8 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\LoggingClient;
 
 $client = new LoggingClient($innerPsr18Client, $logger);
 ```
+
+See examples at [tests/LoggingClientTest.php](tests/LoggingClientTest.php).
 
 ## Local development
 
