@@ -178,6 +178,18 @@ Anything unrecognized is passed to `composer`, so `./dev require <pkg>`,
 `./dev stan`, `./dev rector` etc. all work. Use `./dev php ...` for a raw PHP
 call, `./dev sh` for a shell, and `./dev compose ...` for raw `docker compose`.
 
+## Contributing
+
+A few conventions, kept light:
+
+- **TDD.** Every new branch needs a covering test; the masking/serialization
+  suite must stay green against both Guzzle and Nyholm PSR-7 impls.
+- **Conventional Commits** ([spec](https://www.conventionalcommits.org/)) for
+  messages, e.g. `feat(masking): ...`, `fix: ...`, `test: ...`.
+- **Semantic versioning.** Tags are `vMAJOR.MINOR.PATCH`; the commit type drives
+  the bump (`fix` → patch, `feat` → minor, a `!`/`BREAKING CHANGE` → major).
+- Run `./dev check` (style + static analysis + tests) before opening a PR.
+
 ## License
 
 MIT - see [LICENSE](LICENSE).
