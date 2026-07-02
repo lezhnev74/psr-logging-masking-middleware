@@ -93,6 +93,71 @@ final class MessageMaskerTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
+    public function testSubclassAddsContentTypeViaMaskUnknownTypeSeam(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // A subclass handles application/xml through the maskUnknownType() seam -
+        // the primary override point - while every known type and every other
+        // unknown type keep the inherited behaviour untouched.
+        $masker = new class ($factory) extends MessageMasker {
+            protected function maskUnknownType(string $type, string $body, MaskingConfig $config): string
+            {
+                if ($type === 'application/xml') {
+                    return '<xml redacted>';
+                }
+
+                return parent::maskUnknownType($type, $body, $config);
+            }
+        };
+
+        $xml = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/xml; charset=utf-8')
+            ->withBody($factory->createStream('<user><pass>hunter2</pass></user>'));
+        $json = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"p"}'));
+        $binary = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/octet-stream')
+            ->withBody($factory->createStream('rawbytes'));
+
+        $config = MaskingConfig::create(bodyKeys: ['password']);
+        // Media-type parameters are normalised away before the seam sees the type.
+        self::assertSame('<xml redacted>', (string) $masker->mask($xml, $config)->getBody());
+        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml, $config)->getBody());
+        // Known JSON still masked by key via the dispatch table.
+        self::assertSame('{"password":"***"}', (string) $masker->mask($json, $config)->getBody());
+        // Other unknown types still fall through to the inherited size note.
+        self::assertSame(
+            '<non-loggable application/octet-stream body: 8 bytes>',
+            (string) $masker->mask($binary, $config)->getBody(),
+        );
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testSubclassOverridesDispatchTableViaMaskBodyByTypeSeam(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // Overriding maskBodyByType() lets a subclass reroute a known type; here
+        // JSON is diverted to a custom note, proving the dispatch seam is reachable.
+        $masker = new class ($factory) extends MessageMasker {
+            protected function maskBodyByType(string $type, string $body, MaskingConfig $config): string
+            {
+                if ($type === 'application/json') {
+                    return '<json diverted>';
+                }
+
+                return parent::maskBodyByType($type, $body, $config);
+            }
+        };
+
+        $json = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"p"}'));
+
+        self::assertSame('<json diverted>', (string) $masker->mask($json, MaskingConfig::create())->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
     public function testMasksConfiguredQueryArgsInRequestsOnly(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {

@@ -93,9 +93,25 @@ class MessageMasker
             return '';
         }
 
-        // Media type only: drop any ";charset=..." parameters and normalise case.
-        $type = strtolower(trim(explode(';', $contentType, 2)[0]));
+        return $this->maskBodyByType($this->mediaType($contentType), $body, $config);
+    }
 
+    /**
+     * Normalises a Content-Type header to its bare media type: drops any
+     * ";charset=..." parameters and lower-cases the result.
+     */
+    protected function mediaType(string $contentType): string
+    {
+        return strtolower(trim(explode(';', $contentType, 2)[0]));
+    }
+
+    /**
+     * Dispatches a (non-empty) body to the handler for its media type: JSON
+     * (incl. "+json" suffixes) masked by key, urlencoded form masked by field,
+     * anything else routed to the unknown-type handler. Override to add a type.
+     */
+    protected function maskBodyByType(string $type, string $body, MaskingConfig $config): string
+    {
         // JSON (incl. "+json" structured suffixes) is masked by key recursively.
         if ($type === 'application/json' || str_ends_with($type, '+json')) {
             return $this->maskJsonBody($body, $type, $config);
@@ -106,6 +122,16 @@ class MessageMasker
             return $this->maskFormEncoded($body, $config->bodyKeys);
         }
 
+        return $this->maskUnknownType($type, $body, $config);
+    }
+
+    /**
+     * Handles a body whose media type has no built-in masker. Default replaces
+     * it with a size note so an opaque body is never logged; the primary seam
+     * for a subclass to add masking for extra content types (XML, multipart, ...).
+     */
+    protected function maskUnknownType(string $type, string $body, MaskingConfig $config): string
+    {
         return $this->nonLoggableNote($type, $body);
     }
 
