@@ -16,8 +16,8 @@ use Psr\Http\Message\UriFactoryInterface;
  * Shared base for cross-implementation tests.
  *
  * Every masking/serialization test extends this and consumes the {@see psr7Factories}
- * data provider so the same assertions run against both Guzzle and Nyholm PSR-7,
- * proving genericity (CLAUDE.local.md §3). Concrete PSR-7 implementations are imported
+ * data provider so the same assertions run against each provided PSR-7 implementation,
+ * proving genericity. Concrete PSR-7 implementations are imported
  * here, in tests/, only - never in src/.
  */
 abstract class PsrImplTestCase extends TestCase

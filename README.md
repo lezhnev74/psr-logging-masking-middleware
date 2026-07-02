@@ -9,8 +9,7 @@ It is built on [PSR-7](https://www.php-fig.org/psr/psr-7/) (messages),
 [PSR-17](https://www.php-fig.org/psr/psr-17/) (message factories) and
 [PSR-3](https://www.php-fig.org/psr/psr-3/) (logging), so it stays
 implementation-agnostic: it works with any PSR-3 logger and any PSR-7
-implementation - [Guzzle](https://docs.guzzlephp.org/) is one supported client,
-but not a dependency.
+implementation, none of which is a hard dependency.
 
 ## Requirements
 

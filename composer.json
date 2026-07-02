@@ -1,6 +1,6 @@
 {
     "name": "lezhnev74/psr-logging-masking-middleware",
-    "description": "A logging middleware for any PSR-7 HTTP client (Guzzle, and other PSR-15-style stacks) that logs every request/response through a PSR-3 logger, with headers, query args and body keys masked. Built on PSR-7, PSR-17 and PSR-3.",
+    "description": "A logging middleware for any PSR-7 HTTP client that logs every request/response through a PSR-3 logger, with headers, query args and body keys masked. Built on PSR-7, PSR-17 and PSR-3.",
     "type": "library",
     "license": "MIT",
     "keywords": [
