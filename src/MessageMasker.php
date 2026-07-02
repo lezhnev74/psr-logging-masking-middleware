@@ -27,9 +27,12 @@ final class MessageMasker
 {
     private readonly StreamFactoryInterface $streamFactory;
 
+    private readonly KeyPathMatcher $pathMatcher;
+
     public function __construct(?StreamFactoryInterface $streamFactory = null)
     {
         $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
+        $this->pathMatcher = new KeyPathMatcher();
     }
 
     /**
@@ -150,21 +153,24 @@ final class MessageMasker
     }
 
     /**
-     * Recursively redacts values by case-insensitive key match.
+     * Recursively redacts values whose root-to-node path matches a configured
+     * body key (flat name at any depth, or a dot-path with "*"/"**" wildcards).
      *
      * @param  array<mixed>  $data
+     * @param  list<string>  $path  keys from the JSON root to this array
      * @return array<mixed>
      */
-    private function maskArray(array $data, MaskingConfig $config): array
+    private function maskArray(array $data, MaskingConfig $config, array $path = []): array
     {
         $result = [];
         foreach ($data as $key => $value) {
-            if (is_string($key) && $this->matchesInsensitive($key, $config->bodyKeys)) {
+            $childPath = [...$path, (string)$key];
+            if ($this->pathMatcher->matches($config->bodyKeys, $childPath)) {
                 $result[$key] = Redaction::PLACEHOLDER;
 
                 continue;
             }
-            $result[$key] = is_array($value) ? $this->maskArray($value, $config) : $value;
+            $result[$key] = is_array($value) ? $this->maskArray($value, $config, $childPath) : $value;
         }
 
         return $result;

@@ -112,6 +112,23 @@ final class MessageMaskerTest extends PsrImplTestCase
                 ['x'],
                 '<non-loggable application/json body: 8 bytes>',
             ],
+            'dot-path with * masks each list element, leaves top-level key' => [
+                '{"password":"top","users":[{"password":"a"},{"password":"b"}]}',
+                ['users.*.password'],
+                '{"password":"top","users":[{"password":"' . Redaction::PLACEHOLDER
+                    . '"},{"password":"' . Redaction::PLACEHOLDER . '"}]}',
+            ],
+            'deep ** path masks token at every depth' => [
+                '{"token":"a","nested":{"deep":{"token":"b"}},"keep":"v"}',
+                ['**.token'],
+                '{"token":"' . Redaction::PLACEHOLDER . '","nested":{"deep":{"token":"'
+                    . Redaction::PLACEHOLDER . '"}},"keep":"v"}',
+            ],
+            'exact path masks only that location' => [
+                '{"a":{"b":{"c":"x"}},"c":"keep"}',
+                ['a.b.c'],
+                '{"a":{"b":{"c":"' . Redaction::PLACEHOLDER . '"}},"c":"keep"}',
+            ],
         ];
     }
 
