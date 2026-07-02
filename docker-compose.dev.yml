@@ -1,0 +1,13 @@
+services:
+    app:
+        build:
+            dockerfile: Dockerfile.dev
+        tty: true
+        user: $DOCKER_USER_ID:$DOCKER_GROUP_ID # edit in .env
+        working_dir: /var/www
+        volumes:
+            - .:/var/www
+            - ~/.composer:/.composer
+        extra_hosts:
+            # Let Xdebug inside the container reach the IDE on the host.
+            - "host.docker.internal:host-gateway"

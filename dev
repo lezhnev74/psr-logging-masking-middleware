@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Load env if present (DOCKER_USER_ID / DOCKER_GROUP_ID).
+if [[ -f .env ]]; then
+    set -a
+    source .env
+    set +a
+fi
+
+# Use an array to avoid word-splitting bugs.
+COMPOSE=(docker compose -f "$(dirname "$0")/docker-compose.dev.yml")
+
+# Run `docker compose run` in the app container, filtering noisy lifecycle lines.
+run() {
+    local tty_flag="-it"
+    if [[ ! -t 0 ]]; then
+        tty_flag=""
+    fi
+    "${COMPOSE[@]}" run $tty_flag --remove-orphans --rm "$@" \
+        2> >(grep -v -e 'No services to build' -e '^Container .* Creat' >&2)
+}
+
+if [[ $# -gt 0 ]]; then
+    case "$1" in
+
+        # Container-only escapes (not composer scripts).
+        php)
+            shift
+            run app php "$@"
+            ;;
+
+        sh|exec)
+            shift
+            run app /bin/sh
+            ;;
+
+        # Run phpunit under Xdebug for step-debugging (needs run-level env vars).
+        debug-test)
+            shift
+            run \
+                -e XDEBUG_SESSION=1 -e XDEBUG_TRIGGER=1 app \
+                php -dxdebug.mode=debug \
+                ./vendor/bin/phpunit --testdox "$@"
+            ;;
+
+        # Raw `docker compose` passthrough for anything docker-specific.
+        compose)
+            shift
+            "${COMPOSE[@]}" "$@"
+            ;;
+
+        # `./dev composer <args>` -> composer <args> (avoids `composer composer`).
+        composer)
+            shift
+            run app composer "$@"
+            ;;
+
+        # Everything else tunnels to a composer script in the container:
+        #   ./dev test  ->  composer test   (see "scripts" in composer.json)
+        #   ./dev check ->  composer check
+        #   ./dev install / require / update / ... also just work.
+        *)
+            run app composer "$@"
+            ;;
+    esac
+else
+    "${COMPOSE[@]}" ps
+fi

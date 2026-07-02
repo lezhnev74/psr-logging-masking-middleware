@@ -1,0 +1,9 @@
+.idea/
+docs/
+tmp/
+/vendor/
+composer.lock
+.env
+/.phpunit.cache/
+/.php-cs-fixer.cache
+/.phpstan.cache/

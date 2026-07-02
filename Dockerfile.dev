@@ -1,0 +1,20 @@
+FROM php:8.5-cli-alpine
+
+# Build deps needed to compile the Xdebug PECL extension.
+RUN apk add --no-cache \
+        $PHPIZE_DEPS \
+        linux-headers \
+        git curl
+
+# Install and enable Xdebug for local step-debugging and coverage.
+RUN pecl install xdebug && docker-php-ext-enable xdebug
+ENV PHP_IDE_CONFIG="serverName=DockerApp"
+
+# Composer.
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Drop build deps to keep the image small.
+RUN apk del $PHPIZE_DEPS \
+    && rm -rf /tmp/* /var/cache/apk/*
+
+CMD ["php"]
