@@ -23,7 +23,7 @@ use Psr\Log\LoggerInterface;
  * The real messages are never mutated and their bodies are never consumed -
  * masking and serialization both read through string copies.
  */
-final class MessageLogger
+class MessageLogger
 {
     public function __construct(
         private readonly LoggerInterface $logger,

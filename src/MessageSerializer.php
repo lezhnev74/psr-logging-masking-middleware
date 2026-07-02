@@ -15,7 +15,7 @@ use Psr\Http\Message\ResponseInterface;
  * side-effect free: the message's body is read through a string copy only,
  * never consumed - the caller's stream is left untouched.
  */
-final class MessageSerializer
+class MessageSerializer
 {
     public function serialize(RequestInterface|ResponseInterface $message): string
     {

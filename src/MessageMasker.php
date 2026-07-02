@@ -23,7 +23,7 @@ use Psr\Http\Message\StreamFactoryInterface;
  * with*() immutables) and its body is never consumed - it is read through a
  * string copy and a fresh stream is created via the injected PSR-17 factory.
  */
-final class MessageMasker
+class MessageMasker
 {
     private readonly StreamFactoryInterface $streamFactory;
 

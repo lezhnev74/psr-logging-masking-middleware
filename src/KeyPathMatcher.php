@@ -18,7 +18,7 @@ namespace Lezhnev74\PsrLoggingMaskingMiddleware;
  *
  * Matching is case-insensitive per segment. The engine is pure and stateless.
  */
-final class KeyPathMatcher
+class KeyPathMatcher
 {
     /**
      * True when any configured key matches the given root-to-node path.
