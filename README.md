@@ -1,6 +1,8 @@
 # PSR-compatible Logging Masking Middleware
 
 [![tests](https://github.com/lezhnev74/psr-logging-masking-middleware/actions/workflows/tests.yml/badge.svg)](https://github.com/lezhnev74/psr-logging-masking-middleware/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/lezhnev74/psr-logging-masking-middleware/branch/main/graph/badge.svg)](https://codecov.io/gh/lezhnev74/psr-logging-masking-middleware)
+[![PHPStan](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://phpstan.org/)
 
 A logging middleware for any [PSR-7](https://www.php-fig.org/psr/psr-7/) HTTP
 client that logs every request and response passing through it for later
