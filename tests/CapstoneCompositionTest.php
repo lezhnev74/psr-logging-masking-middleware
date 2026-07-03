@@ -11,6 +11,7 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -20,8 +21,8 @@ use Psr\Http\Message\UriFactoryInterface;
 
 /**
  * Capstone: one wired MessageLogger subclass composing every per-exchange seam
- * at once - resolveRequestConfig()/resolveResponseConfig() (Feature 3) vary the
- * masking per URL, shouldLog() (Feature 2) drops /health, logLevel() (Feature 1)
+ * at once - resolveConfig() (Feature 3) varies the masking per URL and message,
+ * shouldLog() (Feature 2) drops /health, logLevel() (Feature 1)
  * emits at info, and context() (Feature 4) adds a request_id. Driven end-to-end
  * through the PSR-18 LoggingClient decorator, on both Guzzle and Nyholm, this
  * proves the four features compose in a single subclass without touching the core.
@@ -100,7 +101,7 @@ final class CapstoneCompositionTest extends PsrImplTestCase
                 TestLogger $logger,
                 StreamFactoryInterface $streams,
             ) {
-                parent::__construct($logger, masker: new MessageMasker($streams));
+                parent::__construct($logger, MaskingConfig::create(), new MessageMasker($streams));
             }
 
             protected function logLevel(): string
@@ -113,9 +114,13 @@ final class CapstoneCompositionTest extends PsrImplTestCase
                 return $request->getUri()->getPath() !== '/health';
             }
 
-            protected function resolveRequestConfig(RequestInterface $request): MaskingConfig
+            protected function resolveConfig(RequestInterface $request, MessageInterface $message): MaskingConfig
             {
-                $bodyKeys = $request->getUri()->getPath() === '/a' ? ['token'] : [];
+                if (!$message instanceof RequestInterface) {
+                    return MaskingConfig::create();
+                }
+
+                $bodyKeys = $message->getUri()->getPath() === '/a' ? ['token'] : [];
 
                 return MaskingConfig::create(queryNames: ['api_key'], bodyKeys: $bodyKeys);
             }

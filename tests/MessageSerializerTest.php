@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageSerializer;
@@ -156,8 +157,7 @@ final class MessageSerializerTest extends PsrImplTestCase
         $logger = new TestLogger();
         $middleware = new MessageLogger(
             $logger,
-            null,
-            null,
+            MaskingConfig::create(),
             new MessageMasker($factory),
             $serializer,
         );

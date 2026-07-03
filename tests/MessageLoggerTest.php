@@ -10,6 +10,7 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageSerializer;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -33,8 +34,11 @@ final class MessageLoggerTest extends PsrImplTestCase
         $logger = new TestLogger();
         $middleware = new MessageLogger(
             $logger,
-            MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
-            MaskingConfig::create(headerNames: ['Set-Cookie']),
+            MaskingConfig::create(
+                headerNames: ['Authorization', 'Set-Cookie'],
+                queryNames: ['token'],
+                bodyKeys: ['password'],
+            ),
             new MessageMasker($factory),
         );
 
@@ -70,11 +74,11 @@ final class MessageLoggerTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
-    public function testLogsUnmaskedWhenConfigIsNull(
+    public function testLogsUnmaskedWhenConfigIsEmpty(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new MessageLogger($logger, null, null, new MessageMasker($factory));
+        $middleware = new MessageLogger($logger, MaskingConfig::create(), new MessageMasker($factory));
 
         $request = $factory->createRequest('GET', 'https://example.com/?token=abc')
             ->withHeader('Authorization', 'Bearer super-secret');
@@ -98,7 +102,6 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware = new MessageLogger(
             $logger,
             MaskingConfig::create(headerNames: ['Authorization']),
-            null,
             new MessageMasker($factory),
         );
 
@@ -129,7 +132,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $config = MaskingConfig::create(headerNames: ['Authorization']);
 
         $logger = new TestLogger();
-        $middleware = new MessageLogger($logger, $config, null, $masker, $serializer);
+        $middleware = new MessageLogger($logger, $config, $masker, $serializer);
 
         $request = $factory->createRequest('GET', 'https://example.com/')
             ->withHeader('Authorization', 'Bearer super-secret');
@@ -151,8 +154,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $logger = new TestLogger();
         $middleware = new MessageLogger(
             $logger,
-            null,
-            null,
+            MaskingConfig::create(),
             new MessageMasker($factory),
             logLevel: LogLevel::INFO,
         );
@@ -172,7 +174,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
             protected function logLevel(): string
             {
                 return LogLevel::WARNING;
@@ -196,7 +198,7 @@ final class MessageLoggerTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         // Skip health-checks; log everything else.
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
             protected function shouldLog(RequestInterface $request, ?ResponseInterface $response, ?\Throwable $error): bool
             {
                 return $request->getUri()->getPath() !== '/health';
@@ -221,13 +223,13 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        // Mask the Authorization header only for /secure; leave /open untouched.
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
-            protected function resolveRequestConfig(RequestInterface $request): ?MaskingConfig
+        // Mask the Authorization header only for requests to /secure; leave /open untouched.
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
+            protected function resolveConfig(RequestInterface $request, MessageInterface $message): MaskingConfig
             {
-                return $request->getUri()->getPath() === '/secure'
+                return $message instanceof RequestInterface && $message->getUri()->getPath() === '/secure'
                     ? MaskingConfig::create(headerNames: ['Authorization'])
-                    : null;
+                    : MaskingConfig::create();
             }
         };
 
@@ -252,12 +254,12 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
-            protected function resolveResponseConfig(RequestInterface $request, ResponseInterface $response): ?MaskingConfig
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
+            protected function resolveConfig(RequestInterface $request, MessageInterface $message): MaskingConfig
             {
-                return $request->getMethod() === 'POST'
+                return $message instanceof ResponseInterface && $request->getMethod() === 'POST'
                     ? MaskingConfig::create(headerNames: ['Set-Cookie'])
-                    : null;
+                    : MaskingConfig::create();
             }
         };
 
@@ -281,7 +283,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
             protected function formatSuccess(string $requestDump, string $responseDump): string
             {
                 return "REQ<{$requestDump}>RESP<{$responseDump}>";
@@ -312,7 +314,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new MessageLogger($logger, null, null, new MessageMasker($factory));
+        $middleware = new MessageLogger($logger, MaskingConfig::create(), new MessageMasker($factory));
 
         $request = $factory->createRequest('POST', 'https://api.example.com/login?page=2');
 
@@ -331,7 +333,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new MessageLogger($logger, null, null, new MessageMasker($factory));
+        $middleware = new MessageLogger($logger, MaskingConfig::create(), new MessageMasker($factory));
 
         $request = $factory->createRequest('GET', 'https://api.example.com/ping');
 
@@ -356,7 +358,6 @@ final class MessageLoggerTest extends PsrImplTestCase
         $middleware = new MessageLogger(
             $logger,
             MaskingConfig::create(queryNames: ['api_key']),
-            null,
             new MessageMasker($factory),
         );
 
@@ -378,7 +379,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        $middleware = new class ($logger, null, null, new MessageMasker($factory)) extends MessageLogger {
+        $middleware = new class ($logger, MaskingConfig::create(), new MessageMasker($factory)) extends MessageLogger {
             protected function context(RequestInterface $request, ?ResponseInterface $response, ?\Throwable $error): array
             {
                 return ['request_id' => 'rid-42'] + parent::context($request, $response, $error);
@@ -421,8 +422,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         $logger = new TestLogger();
         $middleware = new MessageLogger(
             $logger,
-            MaskingConfig::create(headerNames: ['Authorization']),
-            MaskingConfig::create(headerNames: ['Set-Cookie']),
+            MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
             new MessageMasker($factory),
         );
 

@@ -31,7 +31,7 @@ final class LoggingClientTest extends PsrImplTestCase
     public function testItIsAPsr18Client(): void
     {
         $inner = $this->stubClient(static fn (): ResponseInterface => throw new \LogicException('unused'));
-        $tap = new MessageLogger(new TestLogger());
+        $tap = new MessageLogger(new TestLogger(), MaskingConfig::create());
 
         self::assertInstanceOf(ClientInterface::class, new LoggingClient($inner, $tap));
     }
@@ -46,8 +46,7 @@ final class LoggingClientTest extends PsrImplTestCase
         $logger = new TestLogger();
         $tap = new MessageLogger(
             $logger,
-            MaskingConfig::create(headerNames: ['Authorization']),
-            MaskingConfig::create(headerNames: ['Set-Cookie']),
+            MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
             new MessageMasker($factory),
         );
         $client = new LoggingClient($inner, $tap);
@@ -87,7 +86,6 @@ final class LoggingClientTest extends PsrImplTestCase
         $tap = new MessageLogger(
             $logger,
             MaskingConfig::create(headerNames: ['Authorization']),
-            null,
             new MessageMasker($factory),
         );
         $client = new LoggingClient($inner, $tap);

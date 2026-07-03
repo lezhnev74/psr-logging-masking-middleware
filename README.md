@@ -39,16 +39,16 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 
 $logger = new MessageLogger(
     $psr3Logger,
-    MaskingConfig::create(              // request
-        headerNames: ['Authorization'],
+    MaskingConfig::create(                       // applied to request AND response
+        headerNames: ['Authorization', 'Set-Cookie'],
         queryNames: ['api_key'],
         bodyKeys: ['password'],
     ),
-    MaskingConfig::create(headerNames: ['Set-Cookie']), // response
 );
 ```
 
-Pass a `MessageMasker` as the 4th argument to pin a PSR-17 stream factory or
+One config masks both messages - list every secret name wherever it may appear.
+Pass a `MessageMasker` as the 3rd argument to pin a PSR-17 stream factory or
 customize the replacement string. See
 [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
 
@@ -75,9 +75,10 @@ See [tests/GuzzleClientTest.php](tests/GuzzleClientTest.php) and
 
 Each is a green test - the executable, always-current spec:
 
-- **Per-message masking** - subclass `MessageLogger` and override the
-  `resolveRequestConfig()` / `resolveResponseConfig()` seams to vary masked
-  fields by path, method, headers, etc. (`null` = unmasked):
+- **Per-message masking** - subclass `MessageLogger` and override the single
+  `resolveConfig()` seam to vary masked fields by path, method, headers, etc.; it
+  receives the message being masked and the exchange's request, so it can key on
+  either (return an empty `MaskingConfig::create()` = unmasked):
   [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
 - **Custom replacement** - pass a `replacer:` closure to `MessageMasker`; it
   receives a `MaskTarget` (message, kind, path, value) and returns the string to

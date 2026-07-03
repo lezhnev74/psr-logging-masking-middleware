@@ -124,8 +124,7 @@ final class LaravelHttpFacadeTest extends TestCase
     {
         $tap = new MessageLogger(
             $logger,
-            MaskingConfig::create(headerNames: ['Authorization']),
-            MaskingConfig::create(headerNames: ['Set-Cookie']),
+            MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
             new MessageMasker(new HttpFactory()),
         );
 
