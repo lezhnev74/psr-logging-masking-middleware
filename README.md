@@ -38,8 +38,8 @@ use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 
 $logger = new MessageLogger(
-    $psr3Logger,
-    MaskingConfig::create(                       // applied to request AND response
+    $psr3Logger,                    // inject your app's logger             
+    MaskingConfig::create(          // applied to request AND response
         headerNames: ['Authorization', 'Set-Cookie'],
         queryNames: ['api_key'],
         bodyKeys: ['password'],
@@ -51,6 +51,30 @@ One config masks both messages - list every secret name wherever it may appear.
 Pass a `MessageMasker` as the 3rd argument to pin a PSR-17 stream factory or
 customize the replacement string. See
 [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
+
+### Fluent builder
+
+`MessageLoggerBuilder::for($psr3Logger)` wires the same `MessageLogger` in one
+chain - no hand-built `MaskingConfig` or `MessageMasker`:
+
+```php
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskTarget;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLoggerBuilder;
+use Psr\Log\LogLevel;
+
+$logger = MessageLoggerBuilder::for($psr3Logger)
+    ->maskHeaders('Authorization', 'Set-Cookie')
+    ->maskQuery('api_key')
+    ->maskBody('password', 'card.number')
+    ->placeholder('[redacted]')          // or ->replaceWith(fn (MaskTarget $t) => '***')
+    ->logLevel(LogLevel::INFO)           // defaults to debug
+    // ->streamFactory($psr17Factory)    // optional; discovered when omitted
+    ->build();
+```
+
+The `mask*()` calls accumulate (call one twice to add more names), and
+`placeholder()`/`replaceWith()` share one slot so the last one set wins. See
+[tests/MessageLoggerBuilderTest.php](tests/MessageLoggerBuilderTest.php).
 
 ### Guzzle
 
