@@ -88,6 +88,51 @@ $logger = new class ($psr3Logger) extends MessageLogger {
 See examples at [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php)
 (`testResolvesMaskingConfigPerMessage`, `testResolveResponseConfigIsKeyedOnRequest`).
 
+### Custom replacement values (replacer closure)
+
+The name-lists in `MaskingConfig` decide *which* locations are masked; what
+string lands there is decided by a **replacer** closure. Out of the box a match
+becomes `'***'`, so nothing extra is needed. Pass a `replacer:` to compute the
+replacement per location - it receives a single `MaskTarget` with the message,
+the surface (`MaskKind::Header` / `Query` / `Body`), the path, and the current
+value:
+
+```php
+use Lezhnev74\PsrLoggingMaskingMiddleware\{MaskKind, MaskTarget, MessageMasker};
+
+// Defaults - '***' everywhere.
+$masker = new MessageMasker();
+
+// A different fixed marker - just return it (there is no placeholder argument).
+$masker = new MessageMasker(replacer: fn (MaskTarget $t): string => '[REDACTED]');
+
+// Format-preserving: keep the last 4 chars of any masked value.
+$masker = new MessageMasker(replacer: fn (MaskTarget $t): string
+    => strlen($t->value) > 4
+        ? str_repeat('*', strlen($t->value) - 4) . substr($t->value, -4)
+        : '***');
+
+// Location-aware: hash the Authorization header, star everything else.
+$masker = new MessageMasker(replacer: fn (MaskTarget $t): string
+    => $t->kind === MaskKind::Header && strcasecmp($t->path, 'Authorization') === 0
+        ? 'sha256:' . substr(hash('sha256', $t->value), 0, 12)
+        : '***');
+```
+
+Then hand the masker to the logger as usual (4th `MessageLogger` argument).
+
+Notes:
+
+- **No separate placeholder.** The redaction string is whatever the replacer
+  returns; the default replacer returns `'***'`. To change the fixed marker,
+  return a different string.
+- **Scalar leaves only.** For a JSON body the closure runs at each matched
+  scalar; a matched *array/object* node is redacted wholesale with `'***'` and
+  never reaches the closure (so you never have to reason about a subtree).
+- **Values arrive as strings.** Non-string JSON scalars are string-cast before
+  the closure sees them (`42` -> `"42"`; `false` and `null` -> `""`). Masking is
+  lossy by intent, so the original type is not preserved.
+
 ### Generic clients (handler stacks)
 
 `HandlerMiddleware::for()` turns the logger into a middleware closure - the

@@ -25,7 +25,7 @@ use Psr\Log\LogLevel;
  * masking and serialization both read through string copies.
  *
  * Extension points. Static, once-for-all settings are constructor values: the
- * PSR-3 log level, and (on the injected MessageMasker) the redaction placeholder.
+ * PSR-3 log level, and (on the injected MessageMasker) the redaction replacer.
  * Per-exchange decisions are protected seams a subclass overrides: shouldLog()
  * to skip an exchange, resolveRequestConfig()/resolveResponseConfig() to vary
  * the masking per message, formatSuccess()/formatFailure() to change the

@@ -6,8 +6,11 @@ namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use Lezhnev74\PsrLoggingMaskingMiddleware\KeyPathMatcher;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskKind;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskTarget;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\RequestFactoryInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -39,16 +42,18 @@ final class MessageMaskerTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
-    public function testConstructorPlaceholderReplacesDefaultAcrossHeaderQueryAndBody(
+    public function testFixedStringReplacerReplacesDefaultAcrossHeaderQueryAndBody(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
+        // A different fixed marker is now expressed as a constant replacer -
+        // there is no dedicated placeholder constructor argument.
         $marker = '[REDACTED]';
         $request = $factory->createRequest('POST', 'https://example.com/?token=abc')
             ->withHeader('Authorization', 'Bearer secret')
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"hunter2"}'));
 
-        $masked = (new MessageMasker($factory, $marker))->mask(
+        $masked = (new MessageMasker($factory, replacer: static fn (MaskTarget $t): string => $marker))->mask(
             $request,
             MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
         );
@@ -66,13 +71,17 @@ final class MessageMaskerTest extends PsrImplTestCase
         // A subclass adds XML handling by overriding the now-protected maskBody
         // and still delegates every other type to parent::nonLoggableNote().
         $masker = new class ($factory) extends MessageMasker {
-            public function maskBody(string $body, string $contentType, MaskingConfig $config): string
-            {
+            public function maskBody(
+                string $body,
+                string $contentType,
+                MaskingConfig $config,
+                MessageInterface $message,
+            ): string {
                 if (str_starts_with($contentType, 'application/xml')) {
                     return '<xml redacted>';
                 }
 
-                return parent::maskBody($body, $contentType, $config);
+                return parent::maskBody($body, $contentType, $config, $message);
             }
         };
 
@@ -141,13 +150,17 @@ final class MessageMaskerTest extends PsrImplTestCase
         // Overriding maskBodyByType() lets a subclass reroute a known type; here
         // JSON is diverted to a custom note, proving the dispatch seam is reachable.
         $masker = new class ($factory) extends MessageMasker {
-            protected function maskBodyByType(string $type, string $body, MaskingConfig $config): string
-            {
+            protected function maskBodyByType(
+                string $type,
+                string $body,
+                MaskingConfig $config,
+                MessageInterface $message,
+            ): string {
                 if ($type === 'application/json') {
                     return '<json diverted>';
                 }
 
-                return parent::maskBodyByType($type, $body, $config);
+                return parent::maskBodyByType($type, $body, $config, $message);
             }
         };
 
@@ -392,6 +405,187 @@ final class MessageMaskerTest extends PsrImplTestCase
         self::assertSame('Bearer secret', $request->getHeaderLine('Authorization'));
         self::assertSame('token=abc', $request->getUri()->getQuery());
         self::assertSame('{"password":"p"}', (string) $request->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testReplacerReceivesKindPathAndValueForEverySelectedLeaf(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // A spying replacer records the (kind, path, value) tuple at every matched
+        // scalar leaf across a header, a query arg, a form-style field and nested
+        // JSON incl. a list index - proving each surface reports its own kind/path.
+        $seen = [];
+        $spy = function (MaskTarget $t) use (&$seen): string {
+            $seen[] = [$t->kind->value, $t->path, $t->value];
+
+            return '***';
+        };
+
+        $request = $factory->createRequest('POST', 'https://example.com/?token=abc')
+            ->withHeader('Authorization', 'Bearer secret')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"p","data":[{"name":"n"}]}'));
+
+        (new MessageMasker($factory, replacer: $spy))->mask(
+            $request,
+            MaskingConfig::create(
+                headerNames: ['Authorization'],
+                queryNames: ['token'],
+                bodyKeys: ['password', 'data.*.name'],
+            ),
+        );
+
+        self::assertContains(['query', 'token', 'abc'], $seen);
+        self::assertContains(['header', 'Authorization', 'Bearer secret'], $seen);
+        self::assertContains(['body', 'password', 'p'], $seen);
+        self::assertContains(['body', 'data.0.name', 'n'], $seen);
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testCustomReplacerComputesReplacementFromValueAtEachLocation(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // Keep only the last char, star the rest - a format-preserving replacer
+        // exercised across header, query and JSON body at once.
+        $lastChar = static fn (MaskTarget $t): string
+            => str_repeat('*', max(0, strlen($t->value) - 1)) . substr($t->value, -1);
+
+        $request = $factory->createRequest('POST', 'https://example.com/?token=abcd')
+            ->withHeader('Authorization', 'secret')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"hunter2"}'));
+
+        $masked = (new MessageMasker($factory, replacer: $lastChar))->mask(
+            $request,
+            MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
+        );
+
+        self::assertSame('*****t', $masked->getHeaderLine('Authorization'));
+        self::assertSame('token=' . rawurlencode('***d'), $masked->getUri()->getQuery());
+        self::assertSame('{"password":"******2"}', (string) $masked->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testLocationAwareReplacerKeysOnKindAndPath(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // Hash the Authorization header, star everything else - the replacer keys
+        // its decision on kind + path, not just the value.
+        $replacer = static fn (MaskTarget $t): string
+            => $t->kind === MaskKind::Header && strcasecmp($t->path, 'Authorization') === 0
+                ? 'sha256:' . substr(hash('sha256', $t->value), 0, 8)
+                : '***';
+
+        $request = $factory->createRequest('GET', 'https://example.com/?token=abc')
+            ->withHeader('Authorization', 'Bearer secret');
+
+        $masked = (new MessageMasker($factory, replacer: $replacer))->mask(
+            $request,
+            MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token']),
+        );
+
+        self::assertSame('sha256:' . substr(hash('sha256', 'Bearer secret'), 0, 8), $masked->getHeaderLine('Authorization'));
+        self::assertSame('token=' . rawurlencode('***'), $masked->getUri()->getQuery());
+    }
+
+    /**
+     * The replacer runs only at scalar leaves: a matched array/object node is
+     * redacted wholesale by the placeholder and never reaches the closure, while a
+     * matched non-string scalar reaches it string-cast. The table pairs each JSON
+     * leaf type with the value the replacer is expected to receive (or a sentinel
+     * for "closure not called - wholesale placeholder instead").
+     *
+     * @param  list<string>  $bodyKeys
+     */
+    #[DataProvider('coercionCasesAcrossImpls')]
+    public function testReplacerSeesScalarLeavesCoercedAndSkipsContainers(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+        string $body,
+        array $bodyKeys,
+        ?string $expectedValueSeen,
+        string $expectedBody,
+    ): void {
+        $seen = [];
+        $spy = function (MaskTarget $t) use (&$seen): string {
+            $seen[] = $t->value;
+
+            return 'R';
+        };
+
+        $request = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream($body));
+
+        $masked = (new MessageMasker($factory, replacer: $spy))->mask($request, MaskingConfig::create(bodyKeys: $bodyKeys));
+
+        if ($expectedValueSeen === null) {
+            self::assertSame([], $seen, 'container match must not invoke the replacer');
+        } else {
+            self::assertSame([$expectedValueSeen], $seen);
+        }
+        self::assertSame($expectedBody, (string) $masked->getBody());
+    }
+
+    /**
+     * Value-coercion truth table: [body, bodyKeys, value the replacer should see
+     * (null = not called), expected masked body]. The replacer returns "R" for a
+     * scalar; a container is redacted wholesale by the default placeholder "***".
+     *
+     * @return array<string, array{string, list<string>, ?string, string}>
+     */
+    public static function coercionCases(): array
+    {
+        return [
+            'string scalar passed as-is' => ['{"k":"v"}', ['k'], 'v', '{"k":"R"}'],
+            'int scalar string-cast' => ['{"k":42}', ['k'], '42', '{"k":"R"}'],
+            'float scalar string-cast' => ['{"k":1.5}', ['k'], '1.5', '{"k":"R"}'],
+            'true -> "1"' => ['{"k":true}', ['k'], '1', '{"k":"R"}'],
+            'false -> ""' => ['{"k":false}', ['k'], '', '{"k":"R"}'],
+            'null -> ""' => ['{"k":null}', ['k'], '', '{"k":"R"}'],
+            'object node redacted wholesale, closure not called' => [
+                '{"k":{"a":1,"b":2}}',
+                ['k'],
+                null,
+                '{"k":"***"}',
+            ],
+            'array node redacted wholesale, closure not called' => [
+                '{"k":[1,2,3]}',
+                ['k'],
+                null,
+                '{"k":"***"}',
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, array{RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface, string, list<string>, ?string, string}>
+     */
+    public static function coercionCasesAcrossImpls(): array
+    {
+        $combined = [];
+        foreach (self::psr7Factories() as $impl => [$factory]) {
+            foreach (self::coercionCases() as $name => $case) {
+                $combined["{$impl}: {$name}"] = [$factory, ...$case];
+            }
+        }
+
+        return $combined;
+    }
+
+    #[DataProvider('psr7Factories')]
+    public function testReplacerDecidesScalarLeavesWhileContainersTakeDefaultPlaceholder(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // The replacer decides scalar leaves; a wholesale-redacted container node
+        // never runs the replacer and so takes the default '***' marker.
+        $request = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"scalar":"s","obj":{"a":1}}'));
+
+        $masked = (new MessageMasker($factory, replacer: static fn (MaskTarget $t): string => 'FROM_CLOSURE'))
+            ->mask($request, MaskingConfig::create(bodyKeys: ['scalar', 'obj']));
+
+        self::assertSame('{"scalar":"FROM_CLOSURE","obj":"***"}', (string) $masked->getBody());
     }
 
     #[DataProvider('psr7Factories')]

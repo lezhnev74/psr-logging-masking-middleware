@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Lezhnev74\PsrLoggingMaskingMiddleware;
 
+use Closure;
 use Http\Discovery\Psr17FactoryDiscovery;
 use Psr\Http\Message\MessageInterface;
 use Psr\Http\Message\RequestInterface;
@@ -19,9 +20,22 @@ use Psr\Http\Message\StreamFactoryInterface;
  * with a size note so an opaque body is never logged. Names are matched
  * case-insensitively.
  *
+ * What lands at each masked location is decided by a replacer closure. The
+ * name-lists still *select* which locations are masked; the closure computes the
+ * replacement string for each selected scalar leaf, with the message, surface and
+ * path in hand (see MaskTarget). The default replacer returns '***', so out of
+ * the box a match becomes '***' with no wiring. To redact with a different fixed
+ * string, or with any computed value, supply a replacer.
+ *
+ * The closure runs only at scalar leaves. A matched array/object node is redacted
+ * wholesale with '***' (never partially), so a closure never has to reason about
+ * a JSON subtree and its MaskTarget->value is always a real scalar.
+ *
  * The original message is never mutated (masked clones are built via the PSR-7
  * with*() immutables) and its body is never consumed - it is read through a
  * string copy and a fresh stream is created via the injected PSR-17 factory.
+ *
+ * @phpstan-type MaskReplacer Closure(MaskTarget): string
  */
 class MessageMasker
 {
@@ -29,22 +43,42 @@ class MessageMasker
 
     private readonly KeyPathMatcher $pathMatcher;
 
+    /** @var MaskReplacer */
+    private readonly Closure $replacer;
+
+    /**
+     * @param  ?(Closure(MaskTarget): string)  $replacer  computes the replacement
+     *         for each masked scalar leaf; null falls back to the '***' marker.
+     */
     public function __construct(
         ?StreamFactoryInterface $streamFactory = null,
-        private readonly string $placeholder = '***',
         ?KeyPathMatcher $pathMatcher = null,
+        ?Closure $replacer = null,
     ) {
         $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
         $this->pathMatcher = $pathMatcher ?? new KeyPathMatcher();
+        $this->replacer = $replacer ?? static fn (MaskTarget $target): string => '***';
     }
 
     /**
-     * The marker substituted for every redacted header, query arg and body key.
-     * Set once via the constructor; override for a computed marker.
+     * The replacer closure: given a MaskTarget, returns the string to place at
+     * that location. The seam a subclass overrides to swap the replacement policy;
+     * defaults to returning the '***' marker.
+     *
+     * @return MaskReplacer
      */
-    protected function placeholder(): string
+    protected function replacer(): Closure
     {
-        return $this->placeholder;
+        return $this->replacer;
+    }
+
+    /**
+     * Computes the replacement for one matched location by invoking the replacer -
+     * the single choke point every redaction write site routes through.
+     */
+    protected function replace(MaskTarget $target): string
+    {
+        return ($this->replacer())($target);
     }
 
     /**
@@ -61,26 +95,23 @@ class MessageMasker
         // Mask the query string only for requests (responses have no URI).
         if ($message instanceof RequestInterface) {
             $uri = $message->getUri();
-            $message = $message->withUri($uri->withQuery($this->maskQuery($uri->getQuery(), $config)));
+            $message = $message->withUri(
+                $uri->withQuery($this->maskFormEncoded($uri->getQuery(), $config->queryNames, $message, MaskKind::Query)),
+            );
         }
 
         foreach ($config->headerNames as $name) {
             if ($message->hasHeader($name)) {
-                $message = $message->withHeader($name, $this->placeholder());
+                $message = $message->withHeader(
+                    $name,
+                    $this->replace(new MaskTarget($message, MaskKind::Header, $name, $message->getHeaderLine($name))),
+                );
             }
         }
 
-        $body = $this->maskBody((string)$message->getBody(), $message->getHeaderLine('Content-Type'), $config);
+        $body = $this->maskBody((string)$message->getBody(), $message->getHeaderLine('Content-Type'), $config, $message);
 
         return $message->withBody($this->streamFactory->createStream($body));
-    }
-
-    /**
-     * Masks the values of matching query args, preserving order and string structure.
-     */
-    public function maskQuery(string $query, MaskingConfig $config): string
-    {
-        return $this->maskFormEncoded($query, $config->queryNames);
     }
 
     /**
@@ -88,13 +119,13 @@ class MessageMasker
      * urlencoded (form) bodies are masked by field name against bodyKeys; any
      * other type is replaced with a size note to preclude leaking secrets.
      */
-    public function maskBody(string $body, string $contentType, MaskingConfig $config): string
+    public function maskBody(string $body, string $contentType, MaskingConfig $config, MessageInterface $message): string
     {
         if ($body === '') {
             return '';
         }
 
-        return $this->maskBodyByType($this->mediaType($contentType), $body, $config);
+        return $this->maskBodyByType($this->mediaType($contentType), $body, $config, $message);
     }
 
     /**
@@ -111,16 +142,16 @@ class MessageMasker
      * (incl. "+json" suffixes) masked by key, urlencoded form masked by field,
      * anything else routed to the unknown-type handler. Override to add a type.
      */
-    protected function maskBodyByType(string $type, string $body, MaskingConfig $config): string
+    protected function maskBodyByType(string $type, string $body, MaskingConfig $config, MessageInterface $message): string
     {
         // JSON (incl. "+json" structured suffixes) is masked by key recursively.
         if ($type === 'application/json' || str_ends_with($type, '+json')) {
-            return $this->maskJsonBody($body, $type, $config);
+            return $this->maskJsonBody($body, $type, $config, $message);
         }
 
         // Urlencoded form bodies are masked by field name.
         if ($type === 'application/x-www-form-urlencoded') {
-            return $this->maskFormEncoded($body, $config->bodyKeys);
+            return $this->maskFormEncoded($body, $config->bodyKeys, $message, MaskKind::Body);
         }
 
         return $this->maskUnknownType($type, $body, $config);
@@ -141,7 +172,7 @@ class MessageMasker
      * scalar has no keys so it is logged verbatim, and a body that fails to decode
      * falls through to the non-loggable note.
      */
-    protected function maskJsonBody(string $body, string $type, MaskingConfig $config): string
+    protected function maskJsonBody(string $body, string $type, MaskingConfig $config, MessageInterface $message): string
     {
         try {
             $decoded = json_decode($body, true, flags: JSON_THROW_ON_ERROR);
@@ -150,7 +181,7 @@ class MessageMasker
         }
 
         return is_array($decoded)
-            ? (string)json_encode($this->maskArray($decoded, $config))
+            ? (string)json_encode($this->maskArray($decoded, $config, $message))
             : $body;
     }
 
@@ -167,21 +198,26 @@ class MessageMasker
 
     /**
      * Masks the values of matching pairs in a form-encoded string (query or
-     * body), preserving order and structure. Names match case-insensitively.
+     * body), preserving order and structure. Names match case-insensitively;
+     * each matched value is replaced through the replacer with the given kind.
      *
      * @param  list<string>  $names
      */
-    protected function maskFormEncoded(string $encoded, array $names): string
+    protected function maskFormEncoded(string $encoded, array $names, MessageInterface $message, MaskKind $kind): string
     {
         if ($encoded === '') {
             return '';
         }
 
-        $pairs = array_map(function (string $pair) use ($names): string {
+        $pairs = array_map(function (string $pair) use ($names, $message, $kind): string {
             // Split into name and value; a missing "=" means a valueless flag.
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, null);
             if ($name !== null && $value !== null && $this->matchesInsensitive(rawurldecode($name), $names)) {
-                return $name.'='.rawurlencode($this->placeholder());
+                $replacement = $this->replace(
+                    new MaskTarget($message, $kind, rawurldecode($name), rawurldecode($value)),
+                );
+
+                return $name.'='.rawurlencode($replacement);
             }
 
             return $pair;
@@ -193,25 +229,46 @@ class MessageMasker
     /**
      * Recursively redacts values whose root-to-node path matches a configured
      * body key (flat name at any depth, or a dot-path with "*"/"**" wildcards).
+     * A matched scalar leaf is replaced through the replacer; a matched
+     * array/object node is redacted wholesale with '***' (the closure never sees
+     * a subtree) and recursion stops there.
      *
      * @param  array<mixed>  $data
      * @param  list<string>  $path  keys from the JSON root to this array
      * @return array<mixed>
      */
-    protected function maskArray(array $data, MaskingConfig $config, array $path = []): array
+    protected function maskArray(array $data, MaskingConfig $config, MessageInterface $message, array $path = []): array
     {
         $result = [];
         foreach ($data as $key => $value) {
             $childPath = [...$path, (string)$key];
             if ($this->pathMatcher->matches($config->bodyKeys, $childPath)) {
-                $result[$key] = $this->placeholder();
+                $result[$key] = is_array($value)
+                    ? '***'
+                    : $this->replace(new MaskTarget($message, MaskKind::Body, implode('.', $childPath), $this->scalarToString($value)));
 
                 continue;
             }
-            $result[$key] = is_array($value) ? $this->maskArray($value, $config, $childPath) : $value;
+            $result[$key] = is_array($value) ? $this->maskArray($value, $config, $message, $childPath) : $value;
         }
 
         return $result;
+    }
+
+    /**
+     * Coerces a matched non-array JSON leaf to the string the replacer receives:
+     * strings pass through, other scalars and null take the PHP string cast
+     * (`42` -> "42", `false`/`null` -> ""). Masking is lossy by intent, so the
+     * original type is not preserved.
+     */
+    protected function scalarToString(mixed $value): string
+    {
+        return match (true) {
+            is_string($value) => $value,
+            is_int($value), is_float($value) => (string)$value,
+            $value === true => '1',
+            default => '',   // false and null both redact to the empty string
+        };
     }
 
     /**
