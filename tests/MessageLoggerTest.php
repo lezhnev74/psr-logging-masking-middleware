@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\Masker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
@@ -36,7 +35,7 @@ final class MessageLoggerTest extends PsrImplTestCase
      */
     private function masker(StreamFactoryInterface $factory, ?MaskingConfig $config = null): Masker
     {
-        return ConfiguredMasker::create($config ?? MaskingConfig::create(), new MessageMasker($factory));
+        return new MessageMasker($config ?? MaskingConfig::create(), $factory);
     }
 
     #[DataProvider('psr7Factories')]
@@ -134,7 +133,7 @@ final class MessageLoggerTest extends PsrImplTestCase
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
-        // Any Masker works - not just the package's ConfiguredMasker.
+        // Any Masker works - not just the package's MessageMasker.
         $middleware = new MessageLogger($logger, new class () implements Masker {
             public function mask(MessageInterface $message): MessageInterface
             {
@@ -285,9 +284,9 @@ final class MessageLoggerTest extends PsrImplTestCase
             public function __construct(TestLogger $logger, Masker $masker, StreamFactoryInterface $factory)
             {
                 parent::__construct($logger, $masker);
-                $this->secureMasker = ConfiguredMasker::create(
+                $this->secureMasker = new MessageMasker(
                     MaskingConfig::create(headerNames: ['Authorization']),
-                    new MessageMasker($factory),
+                    $factory,
                 );
             }
 
@@ -326,9 +325,9 @@ final class MessageLoggerTest extends PsrImplTestCase
             public function __construct(TestLogger $logger, Masker $masker, StreamFactoryInterface $factory)
             {
                 parent::__construct($logger, $masker);
-                $this->cookieMasker = ConfiguredMasker::create(
+                $this->cookieMasker = new MessageMasker(
                     MaskingConfig::create(headerNames: ['Set-Cookie']),
-                    new MessageMasker($factory),
+                    $factory,
                 );
             }
 

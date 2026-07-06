@@ -33,13 +33,13 @@ single debug record. Bodies are masked by content-type - JSON by key
 with a `<content-type: N bytes>` note so an opaque body never leaks.
 
 ```php
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 
 $logger = new MessageLogger(
     $psr3Logger,                        // inject your app's logger
-    ConfiguredMasker::create(
+    new MessageMasker(
         MaskingConfig::create(          // applied to request AND response
             headerNames: ['Authorization', 'Set-Cookie'],
             queryNames: ['api_key'],
@@ -50,8 +50,8 @@ $logger = new MessageLogger(
 ```
 
 One config masks both messages - list every secret name wherever it may appear.
-Pass a `MessageMasker` as `ConfiguredMasker::create()`'s 2nd argument to pin a
-PSR-17 stream factory or customize the replacement string; pass a `NullMasker`
+`MessageMasker`'s further constructor arguments pin a PSR-17 stream factory or
+customize the replacement string; pass a `NullMasker`
 to the logger to log exchanges unmasked. See
 [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
 
@@ -116,14 +116,14 @@ Each is a green test - the executable, always-current spec:
 - **Any PSR-18 client** (no handler stack) - wrap it with the `LoggingClient`
   decorator: [tests/LoggingClientTest.php](tests/LoggingClientTest.php).
 - **Standalone masking (no logging)** - the `Masker` interface is the
-  config-bound contract (`mask(MessageInterface): MessageInterface`, returns a
-  masked clone) that `MessageLogger` itself consumes.
-  `ConfiguredMasker::create($config, $engine?)` binds one `MaskingConfig` to a
-  `MessageMasker`; `NullMasker` is the no-op implementation.
-  Build the engine with `preserveUnknownBodies: true` to keep a body whose
+  masking contract (`mask(MessageInterface): MessageInterface`, returns a
+  masked clone) that `MessageLogger` itself consumes. `MessageMasker` is its
+  canonical implementation, bound to one `MaskingConfig`; `NullMasker` is the
+  no-op implementation.
+  Build the masker with `preserveUnknownBodies: true` to keep a body whose
   media type has no built-in masker byte-for-byte instead of collapsing it to
   a size note - for consumers (e.g. traffic recorders) that must keep bodies
-  faithful: [tests/ConfiguredMaskerTest.php](tests/ConfiguredMaskerTest.php).
+  faithful: [tests/MaskerContractTest.php](tests/MaskerContractTest.php).
 
 ## Local development
 

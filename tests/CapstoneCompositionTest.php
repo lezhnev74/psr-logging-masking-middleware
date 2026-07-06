@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\LoggingClient;
 use Lezhnev74\PsrLoggingMaskingMiddleware\Masker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
@@ -107,15 +106,14 @@ final class CapstoneCompositionTest extends PsrImplTestCase
                 TestLogger $logger,
                 StreamFactoryInterface $streams,
             ) {
-                $engine = new MessageMasker($streams);
-                parent::__construct($logger, ConfiguredMasker::create(MaskingConfig::create(), $engine));
-                $this->maskerA = ConfiguredMasker::create(
+                parent::__construct($logger, new MessageMasker(MaskingConfig::create(), $streams));
+                $this->maskerA = new MessageMasker(
                     MaskingConfig::create(queryNames: ['api_key'], bodyKeys: ['token']),
-                    $engine,
+                    $streams,
                 );
-                $this->maskerB = ConfiguredMasker::create(
+                $this->maskerB = new MessageMasker(
                     MaskingConfig::create(queryNames: ['api_key']),
-                    $engine,
+                    $streams,
                 );
             }
 

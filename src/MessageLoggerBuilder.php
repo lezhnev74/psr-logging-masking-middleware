@@ -12,9 +12,9 @@ use Psr\Log\LogLevel;
 /**
  * Fluent builder for a MessageLogger.
  *
- * Collapses the full wiring (a MaskingConfig and a MessageMasker with its
- * stream factory and replacer - bound together into a ConfiguredMasker - plus
- * an optional MessageSerializer and the log level) into one readable chain:
+ * Collapses the full wiring (a MessageMasker with its MaskingConfig, stream
+ * factory and replacer, plus an optional MessageSerializer and the log level)
+ * into one readable chain:
  *
  *     $logger = MessageLoggerBuilder::for($psr3Logger)
  *         ->maskHeaders('Authorization', 'Set-Cookie')
@@ -159,9 +159,11 @@ final class MessageLoggerBuilder
     {
         return new MessageLogger(
             $this->logger,
-            ConfiguredMasker::create(
+            new MessageMasker(
                 MaskingConfig::create($this->headerNames, $this->queryNames, $this->bodyKeys),
-                new MessageMasker($this->streamFactory, null, $this->replacer),
+                $this->streamFactory,
+                null,
+                $this->replacer,
             ),
             $this->serializer ?? new MessageSerializer(),
             $this->logLevel,

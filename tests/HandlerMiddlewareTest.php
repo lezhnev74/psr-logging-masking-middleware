@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\HandlerMiddleware;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
@@ -95,9 +94,9 @@ final class HandlerMiddlewareTest extends PsrImplTestCase
     ): MessageLogger {
         return new MessageLogger(
             $logger,
-            ConfiguredMasker::create(
+            new MessageMasker(
                 MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
-                new MessageMasker($streamFactory),
+                $streamFactory,
             ),
         );
     }

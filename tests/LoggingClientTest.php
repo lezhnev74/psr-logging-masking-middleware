@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\LoggingClient;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
@@ -32,7 +31,7 @@ final class LoggingClientTest extends PsrImplTestCase
     public function testItIsAPsr18Client(): void
     {
         $inner = $this->stubClient(static fn (): ResponseInterface => throw new \LogicException('unused'));
-        $tap = new MessageLogger(new TestLogger(), ConfiguredMasker::create(MaskingConfig::create()));
+        $tap = new MessageLogger(new TestLogger(), new MessageMasker(MaskingConfig::create()));
 
         self::assertInstanceOf(ClientInterface::class, new LoggingClient($inner, $tap));
     }
@@ -47,9 +46,9 @@ final class LoggingClientTest extends PsrImplTestCase
         $logger = new TestLogger();
         $tap = new MessageLogger(
             $logger,
-            ConfiguredMasker::create(
+            new MessageMasker(
                 MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
-                new MessageMasker($factory),
+                $factory,
             ),
         );
         $client = new LoggingClient($inner, $tap);
@@ -88,9 +87,9 @@ final class LoggingClientTest extends PsrImplTestCase
         $logger = new TestLogger();
         $tap = new MessageLogger(
             $logger,
-            ConfiguredMasker::create(
+            new MessageMasker(
                 MaskingConfig::create(headerNames: ['Authorization']),
-                new MessageMasker($factory),
+                $factory,
             ),
         );
         $client = new LoggingClient($inner, $tap);

@@ -7,6 +7,7 @@ namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 use ColinODell\PsrTestLogger\TestLogger;
 use GuzzleHttp\Psr7\HttpFactory;
 use Lezhnev74\PsrLoggingMaskingMiddleware\KeyPathMatcher;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageSerializer;
@@ -31,7 +32,7 @@ final class ExtensibilityTest extends TestCase
 
     public function testMessageMaskerIsSubclassable(): void
     {
-        $subclass = new class (new HttpFactory()) extends MessageMasker {};
+        $subclass = new class (MaskingConfig::create(), new HttpFactory()) extends MessageMasker {};
 
         self::assertInstanceOf(MessageMasker::class, $subclass);
     }

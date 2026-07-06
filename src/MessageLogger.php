@@ -21,8 +21,8 @@ use Psr\Log\LogLevel;
  * LoggingClient decorator drives it for any standard HTTP client.
  *
  * Request and response are masked with the single Masker supplied at
- * construction - typically a ConfiguredMasker binding a MaskingConfig to a
- * MessageMasker engine; pass a NullMasker to log both messages unmasked. The
+ * construction - typically a MessageMasker bound to a MaskingConfig; pass a
+ * NullMasker to log both messages unmasked. The
  * real messages are never mutated and their bodies are never consumed -
  * masking and serialization both read through string copies.
  *
@@ -110,7 +110,7 @@ class MessageLogger
      * Masker applied to a message; called once for the request and once for the
      * response. Receives the message being masked and the exchange's request, so
      * a subclass can key on either (e.g. mask only responses to POSTs, or only
-     * requests to a given path) and return a prebuilt ConfiguredMasker - or any
+     * requests to a given path) and return a prebuilt MessageMasker - or any
      * Masker. Defaults to the single constructor masker; return a NullMasker to
      * log a message unmasked.
      */

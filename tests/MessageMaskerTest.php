@@ -32,10 +32,8 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Authorization', 'Bearer secret')
             ->withHeader('Accept', 'application/json');
 
-        $masked = (new MessageMasker($factory))->mask(
-            $request,
-            MaskingConfig::create(headerNames: ['authorization']),
-        );
+        $masked = (new MessageMasker(MaskingConfig::create(headerNames: ['authorization']), $factory))
+            ->mask($request);
 
         self::assertSame('***', $masked->getHeaderLine('Authorization'));
         self::assertSame('application/json', $masked->getHeaderLine('Accept'));
@@ -53,10 +51,11 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"hunter2"}'));
 
-        $masked = (new MessageMasker($factory, replacer: static fn (MaskTarget $t): string => $marker))->mask(
-            $request,
+        $masked = (new MessageMasker(
             MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
-        );
+            $factory,
+            replacer: static fn (MaskTarget $t): string => $marker,
+        ))->mask($request);
 
         self::assertSame($marker, $masked->getHeaderLine('Authorization'));
         self::assertSame('token=' . rawurlencode($marker), $masked->getUri()->getQuery());
@@ -70,18 +69,17 @@ final class MessageMaskerTest extends PsrImplTestCase
     ): void {
         // A subclass adds XML handling by overriding the now-protected maskBody
         // and still delegates every other type to parent::nonLoggableNote().
-        $masker = new class ($factory) extends MessageMasker {
+        $masker = new class (MaskingConfig::create(), $factory) extends MessageMasker {
             public function maskBody(
                 string $body,
                 string $contentType,
-                MaskingConfig $config,
                 MessageInterface $message,
             ): string {
                 if (str_starts_with($contentType, 'application/xml')) {
                     return '<xml redacted>';
                 }
 
-                return parent::maskBody($body, $contentType, $config, $message);
+                return parent::maskBody($body, $contentType, $message);
             }
         };
 
@@ -92,13 +90,12 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/octet-stream')
             ->withBody($factory->createStream('rawbytes'));
 
-        $config = MaskingConfig::create();
-        self::assertSame('<xml redacted>', (string) $masker->mask($xml, $config)->getBody());
-        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml, $config)->getBody());
+        self::assertSame('<xml redacted>', (string) $masker->mask($xml)->getBody());
+        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml)->getBody());
         // Unknown type still falls through to the inherited size note.
         self::assertSame(
             '<non-loggable application/octet-stream body: 8 bytes>',
-            (string) $masker->mask($binary, $config)->getBody(),
+            (string) $masker->mask($binary)->getBody(),
         );
     }
 
@@ -108,8 +105,8 @@ final class MessageMaskerTest extends PsrImplTestCase
     ): void {
         // With preserveUnknownBodies the engine records an opaque body
         // faithfully while named header/query/JSON-key redactions still apply.
-        $masker = new MessageMasker($factory, preserveUnknownBodies: true);
         $config = MaskingConfig::create(['Authorization'], ['token'], ['password']);
+        $masker = new MessageMasker($config, $factory, preserveUnknownBodies: true);
         $binary = "bin\x00\r\n\r\n\xfe\xff";
 
         $opaque = $factory->createRequest('POST', 'https://example.com/?token=abc123')
@@ -117,7 +114,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/octet-stream')
             ->withBody($factory->createStream($binary));
 
-        $masked = $masker->mask($opaque, $config);
+        $masked = $masker->mask($opaque);
         self::assertSame($binary, (string) $masked->getBody());
         self::assertSame('***', $masked->getHeaderLine('Authorization'));
         self::assertStringNotContainsString('abc123', $masked->getUri()->getQuery());
@@ -126,12 +123,12 @@ final class MessageMaskerTest extends PsrImplTestCase
         $json = $factory->createRequest('POST', 'https://example.com/')
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"p"}'));
-        self::assertSame('{"password":"***"}', (string) $masker->mask($json, $config)->getBody());
+        self::assertSame('{"password":"***"}', (string) $masker->mask($json)->getBody());
 
         // A body without a Content-Type is opaque too and is kept verbatim.
         $untyped = $factory->createRequest('POST', 'https://example.com/')
             ->withBody($factory->createStream('plain'));
-        self::assertSame('plain', (string) $masker->mask($untyped, $config)->getBody());
+        self::assertSame('plain', (string) $masker->mask($untyped)->getBody());
     }
 
     #[DataProvider('psr7Factories')]
@@ -141,14 +138,14 @@ final class MessageMaskerTest extends PsrImplTestCase
         // A subclass handles application/xml through the maskUnknownType() seam -
         // the primary override point - while every known type and every other
         // unknown type keep the inherited behaviour untouched.
-        $masker = new class ($factory) extends MessageMasker {
-            protected function maskUnknownType(string $type, string $body, MaskingConfig $config): string
+        $masker = new class (MaskingConfig::create(bodyKeys: ['password']), $factory) extends MessageMasker {
+            protected function maskUnknownType(string $type, string $body): string
             {
                 if ($type === 'application/xml') {
                     return '<xml redacted>';
                 }
 
-                return parent::maskUnknownType($type, $body, $config);
+                return parent::maskUnknownType($type, $body);
             }
         };
 
@@ -162,16 +159,15 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/octet-stream')
             ->withBody($factory->createStream('rawbytes'));
 
-        $config = MaskingConfig::create(bodyKeys: ['password']);
         // Media-type parameters are normalised away before the seam sees the type.
-        self::assertSame('<xml redacted>', (string) $masker->mask($xml, $config)->getBody());
-        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml, $config)->getBody());
+        self::assertSame('<xml redacted>', (string) $masker->mask($xml)->getBody());
+        self::assertStringNotContainsString('hunter2', (string) $masker->mask($xml)->getBody());
         // Known JSON still masked by key via the dispatch table.
-        self::assertSame('{"password":"***"}', (string) $masker->mask($json, $config)->getBody());
+        self::assertSame('{"password":"***"}', (string) $masker->mask($json)->getBody());
         // Other unknown types still fall through to the inherited size note.
         self::assertSame(
             '<non-loggable application/octet-stream body: 8 bytes>',
-            (string) $masker->mask($binary, $config)->getBody(),
+            (string) $masker->mask($binary)->getBody(),
         );
     }
 
@@ -181,18 +177,17 @@ final class MessageMaskerTest extends PsrImplTestCase
     ): void {
         // Overriding maskBodyByType() lets a subclass reroute a known type; here
         // JSON is diverted to a custom note, proving the dispatch seam is reachable.
-        $masker = new class ($factory) extends MessageMasker {
+        $masker = new class (MaskingConfig::create(), $factory) extends MessageMasker {
             protected function maskBodyByType(
                 string $type,
                 string $body,
-                MaskingConfig $config,
                 MessageInterface $message,
             ): string {
                 if ($type === 'application/json') {
                     return '<json diverted>';
                 }
 
-                return parent::maskBodyByType($type, $body, $config, $message);
+                return parent::maskBodyByType($type, $body, $message);
             }
         };
 
@@ -200,7 +195,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"p"}'));
 
-        self::assertSame('<json diverted>', (string) $masker->mask($json, MaskingConfig::create())->getBody());
+        self::assertSame('<json diverted>', (string) $masker->mask($json)->getBody());
     }
 
     #[DataProvider('psr7Factories')]
@@ -225,10 +220,8 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"secret":"s","password":"p","keep":"v"}'));
 
-        $masked = (new MessageMasker($factory, pathMatcher: $matcher))->mask(
-            $request,
-            MaskingConfig::create(bodyKeys: ['password']),
-        );
+        $masked = (new MessageMasker(MaskingConfig::create(bodyKeys: ['password']), $factory, pathMatcher: $matcher))
+            ->mask($request);
 
         self::assertSame(
             '{"secret":"***","password":"***","keep":"v"}',
@@ -242,10 +235,8 @@ final class MessageMaskerTest extends PsrImplTestCase
     ): void {
         $request = $factory->createRequest('GET', 'https://example.com/?token=abc&page=2');
 
-        $masked = (new MessageMasker($factory))->mask(
-            $request,
-            MaskingConfig::create(queryNames: ['TOKEN']),
-        );
+        $masked = (new MessageMasker(MaskingConfig::create(queryNames: ['TOKEN']), $factory))
+            ->mask($request);
 
         self::assertSame('token=' . rawurlencode('***') . '&page=2', $masked->getUri()->getQuery());
     }
@@ -271,7 +262,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream($body));
 
-        $masked = (new MessageMasker($factory))->mask($request, MaskingConfig::create(bodyKeys: $bodyKeys));
+        $masked = (new MessageMasker(MaskingConfig::create(bodyKeys: $bodyKeys), $factory))->mask($request);
 
         self::assertSame($expected, (string) $masked->getBody());
     }
@@ -356,10 +347,8 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/vnd.api+json; charset=utf-8')
             ->withBody($factory->createStream('{"token":"x"}'));
 
-        $masked = (new MessageMasker($factory))->mask(
-            $request,
-            MaskingConfig::create(bodyKeys: ['token']),
-        );
+        $masked = (new MessageMasker(MaskingConfig::create(bodyKeys: ['token']), $factory))
+            ->mask($request);
 
         self::assertSame(['token' => '***'], json_decode((string) $masked->getBody(), true));
     }
@@ -372,10 +361,8 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/x-www-form-urlencoded')
             ->withBody($factory->createStream('Secret=abc&keep=1&flag'));
 
-        $masked = (new MessageMasker($factory))->mask(
-            $request,
-            MaskingConfig::create(bodyKeys: ['secret']),
-        );
+        $masked = (new MessageMasker(MaskingConfig::create(bodyKeys: ['secret']), $factory))
+            ->mask($request);
 
         self::assertSame(
             'Secret=' . rawurlencode('***') . '&keep=1&flag',
@@ -391,7 +378,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/octet-stream')
             ->withBody($factory->createStream('binarydata!'));
 
-        $masked = (new MessageMasker($factory))->mask($request, MaskingConfig::create());
+        $masked = (new MessageMasker(MaskingConfig::create(), $factory))->mask($request);
 
         self::assertSame('<non-loggable application/octet-stream body: 11 bytes>', (string) $masked->getBody());
     }
@@ -403,7 +390,7 @@ final class MessageMaskerTest extends PsrImplTestCase
         $response = $factory->createResponse(200)
             ->withBody($factory->createStream('plain'));
 
-        $masked = (new MessageMasker($factory))->mask($response, MaskingConfig::create());
+        $masked = (new MessageMasker(MaskingConfig::create(), $factory))->mask($response);
 
         self::assertSame('<non-loggable body: 5 bytes>', (string) $masked->getBody());
     }
@@ -415,7 +402,7 @@ final class MessageMaskerTest extends PsrImplTestCase
         $request = $factory->createRequest('GET', 'https://example.com/')
             ->withHeader('Content-Type', 'application/octet-stream');
 
-        $masked = (new MessageMasker($factory))->mask($request, MaskingConfig::create());
+        $masked = (new MessageMasker(MaskingConfig::create(), $factory))->mask($request);
 
         self::assertSame('', (string) $masked->getBody());
     }
@@ -429,10 +416,10 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"p"}'));
 
-        (new MessageMasker($factory))->mask(
-            $request,
+        (new MessageMasker(
             MaskingConfig::create(headerNames: ['authorization'], queryNames: ['token'], bodyKeys: ['password']),
-        );
+            $factory,
+        ))->mask($request);
 
         self::assertSame('Bearer secret', $request->getHeaderLine('Authorization'));
         self::assertSame('token=abc', $request->getUri()->getQuery());
@@ -458,14 +445,15 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"p","data":[{"name":"n"}]}'));
 
-        (new MessageMasker($factory, replacer: $spy))->mask(
-            $request,
+        (new MessageMasker(
             MaskingConfig::create(
                 headerNames: ['Authorization'],
                 queryNames: ['token'],
                 bodyKeys: ['password', 'data.*.name'],
             ),
-        );
+            $factory,
+            replacer: $spy,
+        ))->mask($request);
 
         self::assertContains(['query', 'token', 'abc'], $seen);
         self::assertContains(['header', 'Authorization', 'Bearer secret'], $seen);
@@ -487,10 +475,11 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"hunter2"}'));
 
-        $masked = (new MessageMasker($factory, replacer: $lastChar))->mask(
-            $request,
+        $masked = (new MessageMasker(
             MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token'], bodyKeys: ['password']),
-        );
+            $factory,
+            replacer: $lastChar,
+        ))->mask($request);
 
         self::assertSame('*****t', $masked->getHeaderLine('Authorization'));
         self::assertSame('token=' . rawurlencode('***d'), $masked->getUri()->getQuery());
@@ -511,10 +500,11 @@ final class MessageMaskerTest extends PsrImplTestCase
         $request = $factory->createRequest('GET', 'https://example.com/?token=abc')
             ->withHeader('Authorization', 'Bearer secret');
 
-        $masked = (new MessageMasker($factory, replacer: $replacer))->mask(
-            $request,
+        $masked = (new MessageMasker(
             MaskingConfig::create(headerNames: ['Authorization'], queryNames: ['token']),
-        );
+            $factory,
+            replacer: $replacer,
+        ))->mask($request);
 
         self::assertSame('sha256:' . substr(hash('sha256', 'Bearer secret'), 0, 8), $masked->getHeaderLine('Authorization'));
         self::assertSame('token=' . rawurlencode('***'), $masked->getUri()->getQuery());
@@ -548,7 +538,8 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream($body));
 
-        $masked = (new MessageMasker($factory, replacer: $spy))->mask($request, MaskingConfig::create(bodyKeys: $bodyKeys));
+        $masked = (new MessageMasker(MaskingConfig::create(bodyKeys: $bodyKeys), $factory, replacer: $spy))
+            ->mask($request);
 
         if ($expectedValueSeen === null) {
             self::assertSame([], $seen, 'container match must not invoke the replacer');
@@ -614,8 +605,11 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"scalar":"s","obj":{"a":1}}'));
 
-        $masked = (new MessageMasker($factory, replacer: static fn (MaskTarget $t): string => 'FROM_CLOSURE'))
-            ->mask($request, MaskingConfig::create(bodyKeys: ['scalar', 'obj']));
+        $masked = (new MessageMasker(
+            MaskingConfig::create(bodyKeys: ['scalar', 'obj']),
+            $factory,
+            replacer: static fn (MaskTarget $t): string => 'FROM_CLOSURE',
+        ))->mask($request);
 
         self::assertSame('{"scalar":"FROM_CLOSURE","obj":"***"}', (string) $masked->getBody());
     }
@@ -628,10 +622,7 @@ final class MessageMaskerTest extends PsrImplTestCase
             ->withHeader('Content-Type', 'application/json')
             ->withBody($factory->createStream('{"password":"p"}'));
 
-        (new MessageMasker($factory))->mask(
-            $request,
-            MaskingConfig::create(bodyKeys: ['password']),
-        );
+        (new MessageMasker(MaskingConfig::create(bodyKeys: ['password']), $factory))->mask($request);
 
         self::assertSame('{"password":"p"}', (string) $request->getBody());
     }

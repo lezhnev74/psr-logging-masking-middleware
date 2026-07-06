@@ -15,7 +15,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Response as LaravelResponse;
 use Illuminate\Support\Facades\Http;
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\HandlerMiddleware;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
@@ -125,9 +124,9 @@ final class LaravelHttpFacadeTest extends TestCase
     {
         $tap = new MessageLogger(
             $logger,
-            ConfiguredMasker::create(
+            new MessageMasker(
                 MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
-                new MessageMasker(new HttpFactory()),
+                new HttpFactory(),
             ),
         );
 

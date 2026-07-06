@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
-use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\Masker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
@@ -16,11 +15,11 @@ use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Http\Message\UriFactoryInterface;
 
 /**
- * Tests for the config-bound Masker contract: ConfiguredMasker binds one
- * MaskingConfig to a MessageMasker engine behind the one-argument mask()
- * seam, and NullMasker is the no-op implementation of the same contract.
+ * Tests for the Masker contract: MessageMasker is its canonical config-bound
+ * implementation behind the one-argument mask() seam, and NullMasker is the
+ * no-op implementation of the same contract.
  */
-final class ConfiguredMaskerTest extends PsrImplTestCase
+final class MaskerContractTest extends PsrImplTestCase
 {
     #[DataProvider('psr7Factories')]
     public function testNullMaskerPassesTheMessageThroughUnchanged(
@@ -36,9 +35,9 @@ final class ConfiguredMaskerTest extends PsrImplTestCase
     public function testMasksBoundConfigAcrossHeaderQueryAndBodyAndClones(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
-        $masker = ConfiguredMasker::create(
+        $masker = new MessageMasker(
             MaskingConfig::create(['Authorization'], ['token'], ['password']),
-            new MessageMasker($factory),
+            $factory,
         );
         self::assertInstanceOf(Masker::class, $masker);
 
@@ -59,13 +58,13 @@ final class ConfiguredMaskerTest extends PsrImplTestCase
         self::assertSame('{"password":"hunter2","user":"bob"}', (string) $request->getBody());
     }
 
-    public function testCreateFallsBackToADefaultEngine(): void
+    public function testConstructorFallsBackToDiscoveredStreamFactory(): void
     {
         // A guzzlehttp/psr7 factory is installed, so PSR-17 discovery succeeds
-        // and the default engine is usable with no wiring.
+        // and the masker is usable with only a config.
         self::assertInstanceOf(
-            ConfiguredMasker::class,
-            ConfiguredMasker::create(MaskingConfig::create()),
+            Masker::class,
+            new MessageMasker(MaskingConfig::create()),
         );
     }
 }
