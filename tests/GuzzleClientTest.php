@@ -12,6 +12,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\HandlerMiddleware;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
@@ -111,8 +112,10 @@ final class GuzzleClientTest extends TestCase
     {
         $tap = new MessageLogger(
             $logger,
-            MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
-            new MessageMasker(new HttpFactory()),
+            ConfiguredMasker::create(
+                MaskingConfig::create(headerNames: ['Authorization', 'Set-Cookie']),
+                new MessageMasker(new HttpFactory()),
+            ),
         );
 
         $stack = HandlerStack::create($mock);

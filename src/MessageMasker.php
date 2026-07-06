@@ -17,7 +17,8 @@ use Psr\Http\Message\StreamFactoryInterface;
  * masked clone with header values, request-URI query args and body keys
  * redacted per the config. The body is masked per its Content-Type: JSON by
  * key (recursively), urlencoded form by field name; any other type is replaced
- * with a size note so an opaque body is never logged. Names are matched
+ * with a size note so an opaque body is never logged (or kept verbatim when
+ * the engine is built with preserveUnknownBodies). Names are matched
  * case-insensitively.
  *
  * What lands at each masked location is decided by a replacer closure. The
@@ -49,11 +50,15 @@ class MessageMasker
     /**
      * @param  ?(Closure(MaskTarget): string)  $replacer  computes the replacement
      *         for each masked scalar leaf; null falls back to the '***' marker.
+     * @param  bool  $preserveUnknownBodies  keep a body whose media type has no
+     *         built-in masker verbatim instead of collapsing it to a size note -
+     *         for consumers (e.g. recorders) that must keep bodies byte-for-byte.
      */
     public function __construct(
         ?StreamFactoryInterface $streamFactory = null,
         ?KeyPathMatcher $pathMatcher = null,
         ?Closure $replacer = null,
+        private readonly bool $preserveUnknownBodies = false,
     ) {
         $this->streamFactory = $streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
         $this->pathMatcher = $pathMatcher ?? new KeyPathMatcher();
@@ -159,12 +164,14 @@ class MessageMasker
 
     /**
      * Handles a body whose media type has no built-in masker. Default replaces
-     * it with a size note so an opaque body is never logged; the primary seam
-     * for a subclass to add masking for extra content types (XML, multipart, ...).
+     * it with a size note so an opaque body is never logged, unless the engine
+     * was built with preserveUnknownBodies - then the body passes through
+     * verbatim. The primary seam for a subclass to add masking for extra
+     * content types (XML, multipart, ...).
      */
     protected function maskUnknownType(string $type, string $body, MaskingConfig $config): string
     {
-        return $this->nonLoggableNote($type, $body);
+        return $this->preserveUnknownBodies ? $body : $this->nonLoggableNote($type, $body);
     }
 
     /**

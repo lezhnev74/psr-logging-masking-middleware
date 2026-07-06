@@ -103,6 +103,38 @@ final class MessageMaskerTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
+    public function testPreserveUnknownBodiesKeepsOpaqueBodyByteForByte(
+        RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
+    ): void {
+        // With preserveUnknownBodies the engine records an opaque body
+        // faithfully while named header/query/JSON-key redactions still apply.
+        $masker = new MessageMasker($factory, preserveUnknownBodies: true);
+        $config = MaskingConfig::create(['Authorization'], ['token'], ['password']);
+        $binary = "bin\x00\r\n\r\n\xfe\xff";
+
+        $opaque = $factory->createRequest('POST', 'https://example.com/?token=abc123')
+            ->withHeader('Authorization', 'Bearer topsecret')
+            ->withHeader('Content-Type', 'application/octet-stream')
+            ->withBody($factory->createStream($binary));
+
+        $masked = $masker->mask($opaque, $config);
+        self::assertSame($binary, (string) $masked->getBody());
+        self::assertSame('***', $masked->getHeaderLine('Authorization'));
+        self::assertStringNotContainsString('abc123', $masked->getUri()->getQuery());
+
+        // Known types stay masked by key; the flag only affects unknown types.
+        $json = $factory->createRequest('POST', 'https://example.com/')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($factory->createStream('{"password":"p"}'));
+        self::assertSame('{"password":"***"}', (string) $masker->mask($json, $config)->getBody());
+
+        // A body without a Content-Type is opaque too and is kept verbatim.
+        $untyped = $factory->createRequest('POST', 'https://example.com/')
+            ->withBody($factory->createStream('plain'));
+        self::assertSame('plain', (string) $masker->mask($untyped, $config)->getBody());
+    }
+
+    #[DataProvider('psr7Factories')]
     public function testSubclassAddsContentTypeViaMaskUnknownTypeSeam(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {

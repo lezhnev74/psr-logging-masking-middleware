@@ -20,25 +20,26 @@ use Psr\Log\LogLevel;
  * came back, so a later debugger still sees exactly what was sent. The PSR-18
  * LoggingClient decorator drives it for any standard HTTP client.
  *
- * Request and response are masked with the single config supplied at
- * construction; an empty config (MaskingConfig::create()) logs both messages
- * unmasked. The real messages are never mutated and their bodies are never
- * consumed - masking and serialization both read through string copies.
+ * Request and response are masked with the single Masker supplied at
+ * construction - typically a ConfiguredMasker binding a MaskingConfig to a
+ * MessageMasker engine; pass a NullMasker to log both messages unmasked. The
+ * real messages are never mutated and their bodies are never consumed -
+ * masking and serialization both read through string copies.
  *
  * Extension points. Static, once-for-all settings are constructor values: the
- * PSR-3 log level, and (on the injected MessageMasker) the redaction replacer.
- * Per-exchange decisions are protected seams a subclass overrides: shouldLog()
- * to skip an exchange, resolveConfig() to vary the masking per message (it
- * receives the message being masked and the exchange's request, so it can key on
- * either), formatSuccess()/formatFailure() to change the rendered log line, and
- * context() to shape the structured PSR-3 context array.
+ * PSR-3 log level, and (inside the injected Masker) the masking policy and
+ * redaction replacer. Per-exchange decisions are protected seams a subclass
+ * overrides: shouldLog() to skip an exchange, resolveMasker() to vary the
+ * masking per message (it receives the message being masked and the exchange's
+ * request, so it can key on either), formatSuccess()/formatFailure() to change
+ * the rendered log line, and context() to shape the structured PSR-3 context
+ * array.
  */
 class MessageLogger
 {
     public function __construct(
         private readonly LoggerInterface $logger,
-        private readonly MaskingConfig $config,
-        private readonly MessageMasker $masker = new MessageMasker(),
+        private readonly Masker $masker,
         private readonly MessageSerializer $serializer = new MessageSerializer(),
         private readonly string $logLevel = LogLevel::DEBUG,
     ) {
@@ -54,9 +55,9 @@ class MessageLogger
             return;
         }
 
-        $maskedRequest = $this->masked($request, $this->resolveConfig($request, $request));
+        $maskedRequest = $this->resolveMasker($request, $request)->mask($request);
         $requestDump = $this->serializer->serialize($maskedRequest);
-        $responseDump = $this->dump($response, $this->resolveConfig($request, $response));
+        $responseDump = $this->dump($request, $response);
 
         $this->logger->log(
             $this->logLevel(),
@@ -77,7 +78,7 @@ class MessageLogger
             return;
         }
 
-        $maskedRequest = $this->masked($request, $this->resolveConfig($request, $request));
+        $maskedRequest = $this->resolveMasker($request, $request)->mask($request);
         $requestDump = $this->serializer->serialize($maskedRequest);
 
         $this->logger->log(
@@ -106,15 +107,16 @@ class MessageLogger
     }
 
     /**
-     * Masking config applied to a message; called once for the request and once
-     * for the response. Receives the message being masked and the exchange's
-     * request, so a subclass can key on either (e.g. mask only responses to POSTs,
-     * or only requests to a given path). Defaults to the single constructor config;
-     * return an empty config (MaskingConfig::create()) to log a message unmasked.
+     * Masker applied to a message; called once for the request and once for the
+     * response. Receives the message being masked and the exchange's request, so
+     * a subclass can key on either (e.g. mask only responses to POSTs, or only
+     * requests to a given path) and return a prebuilt ConfiguredMasker - or any
+     * Masker. Defaults to the single constructor masker; return a NullMasker to
+     * log a message unmasked.
      */
-    protected function resolveConfig(RequestInterface $request, MessageInterface $message): MaskingConfig
+    protected function resolveMasker(RequestInterface $request, MessageInterface $message): Masker
     {
-        return $this->config;
+        return $this->masker;
     }
 
     /**
@@ -165,25 +167,11 @@ class MessageLogger
     }
 
     /**
-     * Serializes a message for the log, masking it per config first; an empty
-     * config leaves the loggable content unmasked.
+     * Serializes a message for the log, masking it first via the masker
+     * resolveMasker() picks for it.
      */
-    protected function dump(RequestInterface|ResponseInterface $message, MaskingConfig $config): string
+    protected function dump(RequestInterface $request, RequestInterface|ResponseInterface $message): string
     {
-        return $this->serializer->serialize($this->masked($message, $config));
-    }
-
-    /**
-     * Returns the masked clone used for both the serialized dump and the context;
-     * an empty config leaves the loggable content unmasked.
-     *
-     * @template T of RequestInterface|ResponseInterface
-     *
-     * @param  T  $message
-     * @return T
-     */
-    private function masked(RequestInterface|ResponseInterface $message, MaskingConfig $config): RequestInterface|ResponseInterface
-    {
-        return $this->masker->mask($message, $config);
+        return $this->serializer->serialize($this->resolveMasker($request, $message)->mask($message));
     }
 }

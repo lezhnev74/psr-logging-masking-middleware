@@ -26,30 +26,33 @@ composer require lezhnev74/psr-logging-masking-middleware
 
 ## Usage
 
-The core is a `MessageLogger`: give it a PSR-3 logger and, optionally, a
-`MaskingConfig` for the request and one for the response. It masks each message
-and writes the exchange as a single debug record. A `null` config logs that
-message unmasked. Bodies are masked by content-type - JSON by key (recursively),
-`x-www-form-urlencoded` by field name, any other type replaced with a
-`<content-type: N bytes>` note so an opaque body never leaks.
+The core is a `MessageLogger`: give it a PSR-3 logger and a `Masker` - the
+config-bound masking policy. It masks each message and writes the exchange as a
+single debug record. Bodies are masked by content-type - JSON by key
+(recursively), `x-www-form-urlencoded` by field name, any other type replaced
+with a `<content-type: N bytes>` note so an opaque body never leaks.
 
 ```php
+use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 
 $logger = new MessageLogger(
-    $psr3Logger,                    // inject your app's logger             
-    MaskingConfig::create(          // applied to request AND response
-        headerNames: ['Authorization', 'Set-Cookie'],
-        queryNames: ['api_key'],
-        bodyKeys: ['password'],
+    $psr3Logger,                        // inject your app's logger
+    ConfiguredMasker::create(
+        MaskingConfig::create(          // applied to request AND response
+            headerNames: ['Authorization', 'Set-Cookie'],
+            queryNames: ['api_key'],
+            bodyKeys: ['password'],
+        ),
     ),
 );
 ```
 
 One config masks both messages - list every secret name wherever it may appear.
-Pass a `MessageMasker` as the 3rd argument to pin a PSR-17 stream factory or
-customize the replacement string. See
+Pass a `MessageMasker` as `ConfiguredMasker::create()`'s 2nd argument to pin a
+PSR-17 stream factory or customize the replacement string; pass a `NullMasker`
+to the logger to log exchanges unmasked. See
 [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
 
 ### Fluent builder
@@ -100,9 +103,9 @@ See [tests/GuzzleClientTest.php](tests/GuzzleClientTest.php) and
 Each is a green test - the executable, always-current spec:
 
 - **Per-message masking** - subclass `MessageLogger` and override the single
-  `resolveConfig()` seam to vary masked fields by path, method, headers, etc.; it
+  `resolveMasker()` seam to vary the masking by path, method, headers, etc.; it
   receives the message being masked and the exchange's request, so it can key on
-  either (return an empty `MaskingConfig::create()` = unmasked):
+  either (return a `NullMasker` = unmasked):
   [tests/MessageLoggerTest.php](tests/MessageLoggerTest.php).
 - **Custom replacement** - pass a `replacer:` closure to `MessageMasker`; it
   receives a `MaskTarget` (message, kind, path, value) and returns the string to
@@ -112,6 +115,15 @@ Each is a green test - the executable, always-current spec:
   provider): [tests/LaravelHttpFacadeTest.php](tests/LaravelHttpFacadeTest.php).
 - **Any PSR-18 client** (no handler stack) - wrap it with the `LoggingClient`
   decorator: [tests/LoggingClientTest.php](tests/LoggingClientTest.php).
+- **Standalone masking (no logging)** - the `Masker` interface is the
+  config-bound contract (`mask(MessageInterface): MessageInterface`, returns a
+  masked clone) that `MessageLogger` itself consumes.
+  `ConfiguredMasker::create($config, $engine?)` binds one `MaskingConfig` to a
+  `MessageMasker`; `NullMasker` is the no-op implementation.
+  Build the engine with `preserveUnknownBodies: true` to keep a body whose
+  media type has no built-in masker byte-for-byte instead of collapsing it to
+  a size note - for consumers (e.g. traffic recorders) that must keep bodies
+  faithful: [tests/ConfiguredMaskerTest.php](tests/ConfiguredMaskerTest.php).
 
 ## Local development
 

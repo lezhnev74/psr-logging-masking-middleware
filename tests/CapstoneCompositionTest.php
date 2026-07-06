@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\ConfiguredMasker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\LoggingClient;
+use Lezhnev74\PsrLoggingMaskingMiddleware\Masker;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageMasker;
@@ -21,7 +23,7 @@ use Psr\Http\Message\UriFactoryInterface;
 
 /**
  * Capstone: one wired MessageLogger subclass composing every per-exchange seam
- * at once - resolveConfig() (Feature 3) varies the masking per URL and message,
+ * at once - resolveMasker() (Feature 3) varies the masking per URL and message,
  * shouldLog() (Feature 2) drops /health, logLevel() (Feature 1)
  * emits at info, and context() (Feature 4) adds a request_id. Driven end-to-end
  * through the PSR-18 LoggingClient decorator, on both Guzzle and Nyholm, this
@@ -97,11 +99,24 @@ final class CapstoneCompositionTest extends PsrImplTestCase
         return new class ($logger, $factory) extends MessageLogger {
             private int $seq = 0;
 
+            private readonly Masker $maskerA;
+
+            private readonly Masker $maskerB;
+
             public function __construct(
                 TestLogger $logger,
                 StreamFactoryInterface $streams,
             ) {
-                parent::__construct($logger, MaskingConfig::create(), new MessageMasker($streams));
+                $engine = new MessageMasker($streams);
+                parent::__construct($logger, ConfiguredMasker::create(MaskingConfig::create(), $engine));
+                $this->maskerA = ConfiguredMasker::create(
+                    MaskingConfig::create(queryNames: ['api_key'], bodyKeys: ['token']),
+                    $engine,
+                );
+                $this->maskerB = ConfiguredMasker::create(
+                    MaskingConfig::create(queryNames: ['api_key']),
+                    $engine,
+                );
             }
 
             protected function logLevel(): string
@@ -114,15 +129,13 @@ final class CapstoneCompositionTest extends PsrImplTestCase
                 return $request->getUri()->getPath() !== '/health';
             }
 
-            protected function resolveConfig(RequestInterface $request, MessageInterface $message): MaskingConfig
+            protected function resolveMasker(RequestInterface $request, MessageInterface $message): Masker
             {
                 if (!$message instanceof RequestInterface) {
-                    return MaskingConfig::create();
+                    return parent::resolveMasker($request, $message);
                 }
 
-                $bodyKeys = $message->getUri()->getPath() === '/a' ? ['token'] : [];
-
-                return MaskingConfig::create(queryNames: ['api_key'], bodyKeys: $bodyKeys);
+                return $message->getUri()->getPath() === '/a' ? $this->maskerA : $this->maskerB;
             }
 
             /** @return array<string, mixed> */
