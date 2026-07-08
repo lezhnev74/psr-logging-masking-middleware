@@ -37,4 +37,50 @@ final class MaskingConfig
     ): self {
         return new self($headerNames, $queryNames, $bodyKeys);
     }
+
+    /**
+     * Merge this config with any number of others into a single config.
+     *
+     * Each list is the concatenation of the receiver's and every other's list,
+     * deduplicated case-insensitively with first-seen order and casing kept.
+     * The receiver is never mutated; a fresh clone is returned.
+     */
+    public function merge(self ...$others): self
+    {
+        $headerNames = $this->headerNames;
+        $queryNames = $this->queryNames;
+        $bodyKeys = $this->bodyKeys;
+
+        foreach ($others as $other) {
+            $headerNames = array_merge($headerNames, $other->headerNames);
+            $queryNames = array_merge($queryNames, $other->queryNames);
+            $bodyKeys = array_merge($bodyKeys, $other->bodyKeys);
+        }
+
+        return self::create(
+            self::dedupeInsensitive($headerNames),
+            self::dedupeInsensitive($queryNames),
+            self::dedupeInsensitive($bodyKeys),
+        );
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    private static function dedupeInsensitive(array $names): array
+    {
+        $result = [];
+        $seen = [];
+        foreach ($names as $name) {
+            $key = strtolower($name);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $result[] = $name;
+        }
+
+        return $result;
+    }
 }
