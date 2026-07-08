@@ -58,9 +58,9 @@ final class MaskingConfig
         }
 
         return self::create(
-            self::dedupeInsensitive($headerNames),
-            self::dedupeInsensitive($queryNames),
-            self::dedupeInsensitive($bodyKeys),
+            $this->dedupeInsensitive($headerNames),
+            $this->dedupeInsensitive($queryNames),
+            $this->dedupeInsensitive($bodyKeys),
         );
     }
 
@@ -68,7 +68,7 @@ final class MaskingConfig
      * @param  list<string>  $names
      * @return list<string>
      */
-    private static function dedupeInsensitive(array $names): array
+    private function dedupeInsensitive(array $names): array
     {
         $result = [];
         $seen = [];
