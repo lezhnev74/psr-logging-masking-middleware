@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Lezhnev74\PsrLoggingMaskingMiddleware\Tests;
 
 use ColinODell\PsrTestLogger\TestLogger;
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskTarget;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLogger;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLoggerBuilder;
@@ -50,14 +51,12 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
-    public function testMaskHeadersQueryBodyAccumulateIntoConfig(
+    public function testWithMaskingConfigMasksAccordingToConfig(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
-            ->maskQuery('api_key')
-            ->maskBody('password')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization'], ['api_key'], ['password']))
             ->streamFactory($factory)
             ->build();
 
@@ -80,13 +79,13 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     }
 
     #[DataProvider('psr7Factories')]
-    public function testMaskHeadersCalledTwiceAccumulates(
+    public function testWithMaskingConfigCalledTwiceMerges(
         RequestFactoryInterface&ResponseFactoryInterface&StreamFactoryInterface&UriFactoryInterface $factory,
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
-            ->maskHeaders('X-Api-Token')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization']))
+            ->withMaskingConfig(MaskingConfig::create(['X-Api-Token']))
             ->streamFactory($factory)
             ->build();
 
@@ -110,7 +109,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization']))
             ->placeholder('[redacted]')
             ->streamFactory($factory)
             ->build();
@@ -133,7 +132,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization']))
             ->replaceWith(static fn (MaskTarget $target): string => strtoupper($target->kind->name))
             ->streamFactory($factory)
             ->build();
@@ -155,7 +154,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization']))
             ->placeholder('FROM_PLACEHOLDER')
             ->replaceWith(static fn (MaskTarget $target): string => 'FROM_CLOSURE')
             ->streamFactory($factory)
@@ -178,7 +177,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskHeaders('Authorization')
+            ->withMaskingConfig(MaskingConfig::create(['Authorization']))
             ->replaceWith(static fn (MaskTarget $target): string => 'FROM_CLOSURE')
             ->placeholder('FROM_PLACEHOLDER')
             ->streamFactory($factory)
@@ -228,7 +227,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         $middleware = MessageLoggerBuilder::for($logger)
-            ->maskBody('password')
+            ->withMaskingConfig(MaskingConfig::create(bodyKeys: ['password']))
             ->streamFactory($factory)
             ->build();
 
@@ -251,7 +250,7 @@ final class MessageLoggerBuilderTest extends PsrImplTestCase
     ): void {
         $logger = new TestLogger();
         // No streamFactory() call: the masker must discover a PSR-17 factory itself.
-        $middleware = MessageLoggerBuilder::for($logger)->maskHeaders('Authorization')->build();
+        $middleware = MessageLoggerBuilder::for($logger)->withMaskingConfig(MaskingConfig::create(['Authorization']))->build();
 
         $request = $factory->createRequest('GET', 'https://example.com/')
             ->withHeader('Authorization', 'Bearer super-secret');

@@ -61,22 +61,26 @@ to the logger to log exchanges unmasked. See
 chain - no hand-built `MaskingConfig` or `MessageMasker`:
 
 ```php
+use Lezhnev74\PsrLoggingMaskingMiddleware\MaskingConfig;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MaskTarget;
 use Lezhnev74\PsrLoggingMaskingMiddleware\MessageLoggerBuilder;
 use Psr\Log\LogLevel;
 
 $logger = MessageLoggerBuilder::for($psr3Logger)
-    ->maskHeaders('Authorization', 'Set-Cookie')
-    ->maskQuery('api_key')
-    ->maskBody('password', 'card.number')
+    ->withMaskingConfig(MaskingConfig::create(
+        headerNames: ['Authorization', 'Set-Cookie'],
+        queryNames: ['api_key'],
+        bodyKeys: ['password', 'card.number'],
+    ))
     ->placeholder('[redacted]')          // or ->replaceWith(fn (MaskTarget $t) => '***')
     ->logLevel(LogLevel::INFO)           // defaults to debug
     // ->streamFactory($psr17Factory)    // optional; discovered when omitted
     ->build();
 ```
 
-The `mask*()` calls accumulate (call one twice to add more names), and
-`placeholder()`/`replaceWith()` share one slot so the last one set wins. See
+Call `withMaskingConfig()` more than once to merge configs (deduped
+case-insensitively), and `placeholder()`/`replaceWith()` share one slot so the
+last one set wins. See
 [tests/MessageLoggerBuilderTest.php](tests/MessageLoggerBuilderTest.php).
 
 ### Guzzle
